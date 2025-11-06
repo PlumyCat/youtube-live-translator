@@ -1,0 +1,266 @@
+%% Diagramme Fonctionnel - Application de Traduction en Direct de Vidéos YouTube
+%% Créé le: 2025-11-06
+%% Description: Application desktop pour traduction audio en temps réel (Anglais → Français)
+%% Latence cible: < 2 secondes
+
+%% ========================================
+%% DIAGRAMME 1: ARCHITECTURE ET FLUX DE DONNÉES
+%% ========================================
+
+graph TB
+    %% Composants UI et Entrée Utilisateur
+    User[👤 Utilisateur] -->|Entre URL YouTube| UI[🖥️ Interface Desktop<br/>Electron/Tauri]
+    UI -->|Démarre capture| Controller[🎮 Contrôleur Principal]
+
+    %% Gestion de la source audio
+    Controller -->|Initialise| YT[📺 YouTube Audio Capture<br/>yt-dlp / puppeteer]
+    YT -->|Flux audio brut| AudioBuffer[🔊 Buffer Audio<br/>Chunks de 1-2 sec]
+
+    %% Pipeline de traitement
+    AudioBuffer -->|Audio segmenté| STT[🎤 Speech-to-Text<br/>Google/Azure/Whisper API]
+    STT -->|Texte anglais| TextBuffer[📝 Buffer Texte Source]
+    TextBuffer -->|Phrase complète| Translator[🌐 Service de Traduction<br/>Google/DeepL/Azure]
+    Translator -->|Texte français| TTS[🔈 Text-to-Speech<br/>Google/Azure/ElevenLabs]
+    TTS -->|Audio traduit| OutputBuffer[🔊 Buffer Audio Sortie]
+
+    %% Lecture et synchronisation
+    OutputBuffer -->|Audio français| Player[▶️ Lecteur Audio<br/>Web Audio API]
+    Player -->|Son traduit| Speaker[🔊 Haut-parleurs]
+
+    %% Synchronisation et contrôle
+    Controller -->|Monitore latence| SyncManager[⚡ Gestionnaire de Sync<br/>Contrôle timing]
+    SyncManager -->|Ajuste buffers| AudioBuffer
+    SyncManager -->|Ajuste buffers| OutputBuffer
+    SyncManager -->|Affiche statut| UI
+
+    %% Gestion des erreurs et logs
+    Controller -->|Log events| Logger[📊 Logger & Monitoring]
+    STT -.->|Erreurs API| ErrorHandler[❌ Gestionnaire d'Erreurs]
+    Translator -.->|Erreurs API| ErrorHandler
+    TTS -.->|Erreurs API| ErrorHandler
+    ErrorHandler -->|Affiche alertes| UI
+
+    %% Configuration
+    Config[⚙️ Configuration<br/>- Langues<br/>- Services API<br/>- Latence max] -->|Paramètres| Controller
+
+    %% Styles
+    classDef userClass fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    classDef uiClass fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef processingClass fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef apiClass fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef bufferClass fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    classDef controlClass fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class User userClass
+    class UI,Speaker uiClass
+    class Controller,SyncManager,ErrorHandler,Logger controlClass
+    class YT,AudioBuffer,TextBuffer,OutputBuffer,Player bufferClass
+    class STT,Translator,TTS apiClass
+    class Config controlClass
+
+%% ========================================
+%% DIAGRAMME 2: SÉQUENCE D'EXÉCUTION TEMPS RÉEL
+%% ========================================
+
+---
+
+sequenceDiagram
+    participant U as 👤 Utilisateur
+    participant UI as 🖥️ Interface
+    participant C as 🎮 Contrôleur
+    participant YT as 📺 YouTube Capture
+    participant AB as 🔊 Audio Buffer
+    participant STT as 🎤 STT Service
+    participant TR as 🌐 Traducteur
+    participant TTS as 🔈 TTS Service
+    participant PL as ▶️ Player Audio
+    participant SM as ⚡ Sync Manager
+
+    %% Phase d'initialisation
+    U->>UI: Saisit URL YouTube
+    UI->>C: start(url)
+    C->>YT: initCapture(url)
+    YT-->>C: Ready
+    C->>SM: startMonitoring()
+    SM-->>UI: Status: Initialisation...
+
+    %% Phase de capture continue
+    Note over YT,AB: Boucle continue - Capture audio
+    YT->>AB: audioChunk (1-2 sec)
+    AB->>STT: sendAudioData()
+
+    %% Traitement asynchrone
+    Note over STT,TTS: Pipeline de traduction (parallèle)
+    STT->>STT: Transcription en cours...
+    STT->>TR: text: "Hello, how are you?"
+    TR->>TR: Traduction en cours...
+    TR->>TTS: text: "Bonjour, comment allez-vous ?"
+    TTS->>TTS: Synthèse vocale...
+    TTS->>PL: audioData (français)
+
+    %% Lecture et synchronisation
+    PL->>U: Lecture audio traduit
+    SM->>SM: calculateLatency()
+
+    alt Latence < 2 secondes
+        SM->>UI: Status: ✓ Temps réel OK (1.5s)
+    else Latence > 2 secondes
+        SM->>C: adjustBuffers()
+        C->>AB: reduceBufferSize()
+        SM->>UI: Status: ⚠️ Latence élevée (2.8s)
+    end
+
+    %% Capture suivante (cycle continu)
+    Note over YT,PL: Cycle suivant
+    YT->>AB: audioChunk suivant
+    AB->>STT: sendAudioData()
+
+    %% Gestion des erreurs
+    alt Erreur API
+        STT-->>C: error: API timeout
+        C->>UI: Affiche erreur + retry
+        C->>STT: retry avec backoff
+    end
+
+    %% Arrêt
+    U->>UI: Arrête la traduction
+    UI->>C: stop()
+    C->>YT: stopCapture()
+    C->>PL: stopPlayback()
+    C->>SM: stopMonitoring()
+    SM-->>UI: Status: Arrêté
+
+%% ========================================
+%% DIAGRAMME 3: ARCHITECTURE DES COMPOSANTS
+%% ========================================
+
+---
+
+graph LR
+    %% Couche Présentation
+    subgraph Frontend["🖥️ COUCHE PRÉSENTATION (Electron/Tauri)"]
+        UI_Main[Interface Principale]
+        UI_Controls[Contrôles Lecture]
+        UI_Status[Indicateurs Status]
+        UI_Settings[Panneau Paramètres]
+    end
+
+    %% Couche Métier
+    subgraph Core["⚙️ COUCHE MÉTIER (Node.js/Rust)"]
+        direction TB
+        AppController[Contrôleur Application]
+        CaptureEngine[Moteur de Capture]
+        ProcessingPipeline[Pipeline Traitement]
+        SyncEngine[Moteur Synchronisation]
+        AudioManager[Gestionnaire Audio]
+    end
+
+    %% Couche Services
+    subgraph Services["🌐 COUCHE SERVICES EXTERNES"]
+        direction TB
+        STT_API[API Speech-to-Text<br/>Google/Azure/Whisper]
+        Translation_API[API Traduction<br/>Google/DeepL/Azure]
+        TTS_API[API Text-to-Speech<br/>Google/Azure/ElevenLabs]
+    end
+
+    %% Couche Infrastructure
+    subgraph Infrastructure["🔧 COUCHE INFRASTRUCTURE"]
+        direction TB
+        ConfigManager[Gestionnaire Config]
+        CacheManager[Gestionnaire Cache]
+        LogManager[Gestionnaire Logs]
+        ErrorManager[Gestionnaire Erreurs]
+    end
+
+    %% Connexions
+    Frontend --> Core
+    Core --> Services
+    Core --> Infrastructure
+
+    %% Styles
+    classDef frontendStyle fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef coreStyle fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+    classDef serviceStyle fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef infraStyle fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+
+    class Frontend frontendStyle
+    class Core coreStyle
+    class Services serviceStyle
+    class Infrastructure infraStyle
+
+%% ========================================
+%% DIAGRAMME 4: GESTION DU BUFFERING ET LATENCE
+%% ========================================
+
+---
+
+graph TD
+    Start[⏱️ Début Capture Audio] --> Chunk1[Chunk Audio 1<br/>1.5 sec]
+
+    Chunk1 --> STT1[STT: 400ms]
+    STT1 --> Trans1[Traduction: 300ms]
+    Trans1 --> TTS1[TTS: 600ms]
+    TTS1 --> Play1[▶️ Lecture: 1.5 sec]
+
+    Play1 --> Chunk2[Chunk Audio 2<br/>1.5 sec]
+    Chunk2 --> STT2[STT: 400ms]
+    STT2 --> Trans2[Traduction: 300ms]
+    Trans2 --> TTS2[TTS: 600ms]
+    TTS2 --> Play2[▶️ Lecture: 1.5 sec]
+
+    %% Calcul latence
+    STT1 -.->|Latence totale| LatencyCalc[📊 Calcul Latence]
+    Trans1 -.-> LatencyCalc
+    TTS1 -.-> LatencyCalc
+
+    LatencyCalc -->|1.3 sec| OK[✅ OK - Dans cible]
+    LatencyCalc -->|> 2 sec| Adjust[⚠️ Ajustement requis]
+
+    Adjust -->|Réduire chunk| ChunkSize[Chunk: 1.0 sec]
+    Adjust -->|Paralléliser| Parallel[Traitement parallèle]
+    Adjust -->|Cache| CacheResults[Cache traductions fréquentes]
+
+    ChunkSize --> Retry[Retry avec nouveaux params]
+    Parallel --> Retry
+    CacheResults --> Retry
+
+    %% Styles
+    classDef processStyle fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef okStyle fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    classDef warningStyle fill:#ffecb3,stroke:#f57c00,stroke-width:2px
+
+    class Chunk1,Chunk2,ChunkSize processStyle
+    class STT1,STT2,Trans1,Trans2,TTS1,TTS2 processStyle
+    class Play1,Play2 processStyle
+    class OK okStyle
+    class Adjust,Retry warningStyle
+
+%% ========================================
+%% NOTES TECHNIQUES
+%% ========================================
+
+%% Technologies recommandées:
+%% - Frontend: Electron (maturité) ou Tauri (performance)
+%% - Capture YouTube: yt-dlp + ffmpeg ou Puppeteer avec Media Stream API
+%% - STT: Google Cloud Speech-to-Text (streaming), Azure Speech, ou Whisper API
+%% - Traduction: DeepL API (qualité) ou Google Translate API (vitesse)
+%% - TTS: Google Cloud TTS, Azure Speech, ou ElevenLabs (qualité premium)
+%% - Audio Processing: Web Audio API ou rust crate (rodio/cpal)
+%% - Buffering: Ring buffer avec gestion backpressure
+%% - State Management: Redux/Zustand (React) ou Tauri State
+
+%% Optimisations latence:
+%% 1. Streaming STT (pas d'attente fin de phrase)
+%% 2. Traduction par phrases courtes (détection pauses)
+%% 3. TTS en streaming si disponible
+%% 4. Cache intelligent pour phrases répétées
+%% 5. Traitement parallèle de multiples chunks
+%% 6. Ajustement dynamique taille chunks selon latence réseau
+
+%% Points d'attention:
+%% - Coût APIs (facturation par seconde audio)
+%% - Rate limiting des APIs
+%% - Gestion reconnexion en cas d'erreur réseau
+%% - Qualité audio source (bruit de fond YouTube)
+%% - Détection langue source automatique vs manuelle
+%% - Support multi-formats YouTube (streams live, VOD, etc.)
