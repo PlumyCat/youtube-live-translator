@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 function App() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -13,7 +13,7 @@ function App() {
     const unsubLatency = window.electronAPI.onLatencyUpdate(setCurrentLatency);
     const unsubTranscript = window.electronAPI.onTranscriptUpdate(setTranscript);
     const unsubTranslation = window.electronAPI.onTranslationUpdate(setTranslation);
-    const unsubStatus = window.electronAPI.onStatusChange((newStatus) => {
+    const unsubStatus = window.electronAPI.onStatusChange(newStatus => {
       setStatus(newStatus as 'idle' | 'translating' | 'error');
     });
     const unsubError = window.electronAPI.onError(setError);
@@ -140,7 +140,9 @@ function App() {
             </div>
             <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
               <h3 className="text-sm font-medium text-gray-400 mb-2">Translation (French)</h3>
-              <p className="text-white min-h-[100px]">{translation || 'Waiting for translation...'}</p>
+              <p className="text-white min-h-[100px]">
+                {translation || 'Waiting for translation...'}
+              </p>
             </div>
           </div>
         </div>
