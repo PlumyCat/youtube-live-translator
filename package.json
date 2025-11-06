@@ -24,8 +24,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@google-cloud/speech": "^7.2.1",
+    "@google-cloud/text-to-speech": "^6.4.0",
     "axios": "^1.6.2",
     "axios-retry": "^4.0.0",
+    "deepl-node": "^1.21.0",
     "dotenv": "^16.3.1",
     "electron-updater": "^6.1.7",
     "pino": "^8.17.2",
