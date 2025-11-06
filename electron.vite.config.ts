@@ -12,6 +12,7 @@ export default defineConfig({
       },
     },
     build: {
+      outDir: 'out/main',
       rollupOptions: {
         external: [
           'speaker',
@@ -30,8 +31,15 @@ export default defineConfig({
         '@shared': resolve('src/shared'),
       },
     },
+    build: {
+      outDir: 'out/preload',
+    },
   },
   renderer: {
+    root: 'src/renderer',
+    build: {
+      outDir: resolve(__dirname, 'out/renderer'),
+    },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer'),
