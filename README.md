@@ -291,6 +291,42 @@ Les contributions sont les bienvenues ! Merci de :
 
 ### Problèmes Courants
 
+**Erreur: "Cannot find module @rollup/rollup-win32-x64-msvc" (Windows uniquement)**
+
+Ce problème survient lors du transfert du projet depuis Linux/macOS vers Windows à cause d'un bug npm avec les dépendances optionnelles.
+
+**Solution automatique (recommandée)** :
+```bash
+npm run postinstall
+```
+
+**Solution manuelle** :
+```bash
+# 1. Télécharger le binaire Rollup pour Windows
+powershell -Command "Invoke-WebRequest -Uri 'https://registry.npmjs.org/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.52.5.tgz' -OutFile 'rollup-win.tgz'"
+
+# 2. Extraire et installer
+tar -xzf rollup-win.tgz
+powershell -Command "New-Item -ItemType Directory -Force -Path 'node_modules\@rollup' | Out-Null; Move-Item -Force package 'node_modules\@rollup\rollup-win32-x64-msvc'; Remove-Item rollup-win.tgz"
+
+# 3. Réinstaller les dépendances
+npm install
+```
+
+**Erreur: "Could not extract functions" ou "Error invoking translation:start"**
+
+Ce problème survient avec l'ancienne version de ytdl-core qui n'est plus maintenue. Le projet utilise maintenant `@distube/ytdl-core`.
+
+Si vous avez cette erreur :
+```bash
+# Vérifier que @distube/ytdl-core est installé
+npm list @distube/ytdl-core
+
+# Si absent, installer :
+npm uninstall ytdl-core
+npm install @distube/ytdl-core
+```
+
 **Erreur: "yt-dlp not found"**
 ```bash
 npm run install:deps
@@ -327,7 +363,7 @@ Ce projet est sous licence MIT. Voir fichier [LICENSE](./LICENSE) pour plus de d
 
 - **Google Cloud** - Services STT et TTS
 - **DeepL** - Service de traduction haute qualité
-- **yt-dlp** - Extraction audio YouTube
+- **@distube/ytdl-core** - Extraction audio YouTube (fork maintenu de ytdl-core)
 - **Electron** - Framework desktop cross-platform
 - Communauté open-source pour les nombreuses bibliothèques utilisées
 

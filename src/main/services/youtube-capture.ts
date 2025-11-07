@@ -2,7 +2,7 @@
  * YouTube Audio Capture Service
  * Extracts audio stream from YouTube videos using ytdl-core
  */
-import ytdl from 'ytdl-core';
+import ytdl from '@distube/ytdl-core';
 import { Readable } from 'stream';
 import { createComponentLogger } from '@main/utils/logger';
 

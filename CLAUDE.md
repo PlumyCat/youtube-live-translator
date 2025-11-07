@@ -15,11 +15,14 @@ Guide concis pour Claude Code lors du développement sur ce projet.
 
 ### Développement quotidien
 ```bash
+npm install          # Installe dépendances + postinstall automatique (fixe Rollup Windows)
 npm run dev          # Lance l'app en mode dev
 npm test             # Tests unitaires (Vitest)
 npm run test:e2e     # Tests E2E (Playwright)
 npm run lint         # ESLint + TypeScript check
 ```
+
+**Note Windows** : Le script `postinstall` (scripts/postinstall.js) s'exécute automatiquement après `npm install` pour corriger le bug npm des dépendances optionnelles Rollup sur Windows.
 
 ### Commandes slash Claude Code
 - `/dev-setup` - Configuration environnement (première fois)
