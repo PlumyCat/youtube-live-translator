@@ -26,6 +26,7 @@ export interface AudioChunk {
  */
 export class YouTubeCaptureService {
   private process: ChildProcessWithoutNullStreams | null = null;
+  private ytDlpProcess: ChildProcessWithoutNullStreams | null = null;
   private stream: Readable | null = null;
   private options: YouTubeCaptureOptions;
   private isCapturing = false;
@@ -80,10 +81,12 @@ export class YouTubeCaptureService {
         });
       });
 
-      // Start streaming audio
+      // Start streaming audio with ffmpeg conversion
       const format = this.options.quality === 'highest' ? 'bestaudio' : 'worstaudio';
+      const ffmpegPath = process.env.FFMPEG_PATH || path.join(process.cwd(), 'resources', 'ffmpeg', 'bin', 'ffmpeg.exe');
       
-      this.process = spawn(ytDlpPath, [
+      // yt-dlp: Download audio
+      this.ytDlpProcess = spawn(ytDlpPath, [
         '-f', format,
         '-o', '-',           // Output to stdout
         '--no-playlist',     // Don't download playlists
@@ -91,6 +94,29 @@ export class YouTubeCaptureService {
         '--no-warnings',     // Suppress warnings
         this.options.url,
       ]);
+
+      // ffmpeg: Convert to LINEAR16 PCM 16kHz mono for Google Cloud STT
+      this.process = spawn(ffmpegPath, [
+        '-i', 'pipe:0',               // Input from stdin
+        '-f', 's16le',                // Format: signed 16-bit little-endian
+        '-acodec', 'pcm_s16le',       // Codec: PCM signed 16-bit
+        '-ar', '16000',               // Sample rate: 16kHz (required by Google STT)
+        '-ac', '1',                   // Audio channels: 1 (mono)
+        '-'                           // Output to stdout
+      ]);
+
+      // Pipe yt-dlp stdout to ffmpeg stdin
+      this.ytDlpProcess.stdout.pipe(this.process.stdin);
+
+      // Handle yt-dlp errors
+      this.ytDlpProcess.stderr?.on('data', (data) => {
+        logger.warn({ stderr: data.toString() }, 'yt-dlp stderr');
+      });
+
+      this.ytDlpProcess.on('error', (error) => {
+        logger.error({ err: error }, 'yt-dlp process error');
+        this.stop();
+      });
 
       this.stream = this.process.stdout;
       this.isCapturing = true;
@@ -160,6 +186,13 @@ export class YouTubeCaptureService {
     logger.info('Stopping YouTube audio capture');
     this.isCapturing = false;
 
+    // Kill ytdl-p process
+    if (this.ytDlpProcess) {
+      this.ytDlpProcess.kill('SIGTERM');
+      this.ytDlpProcess = null;
+    }
+
+    // Kill ffmpeg process
     if (this.process) {
       this.process.kill('SIGTERM');
       this.process = null;

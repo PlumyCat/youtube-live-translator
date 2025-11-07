@@ -62,3 +62,4 @@ playwright/.cache/
 .serena/memories/
 resources/yt-dlp.exe
 *-player-script.js
+resources/ffmpeg/
