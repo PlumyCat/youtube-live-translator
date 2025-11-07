@@ -1,10 +1,11 @@
 /**
  * YouTube Audio Capture Service
- * Extracts audio stream from YouTube videos using ytdl-core
+ * Extracts audio stream from YouTube videos using yt-dlp
  */
-import ytdl from '@distube/ytdl-core';
+import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { Readable } from 'stream';
 import { createComponentLogger } from '@main/utils/logger';
+import path from 'path';
 
 const logger = createComponentLogger('YouTubeCapture');
 
@@ -24,6 +25,7 @@ export interface AudioChunk {
  * YouTube Audio Capture Service
  */
 export class YouTubeCaptureService {
+  private process: ChildProcessWithoutNullStreams | null = null;
   private stream: Readable | null = null;
   private options: YouTubeCaptureOptions;
   private isCapturing = false;
@@ -34,39 +36,63 @@ export class YouTubeCaptureService {
   }
 
   /**
-   * Start capturing audio from YouTube
+   * Start capturing audio from YouTube using yt-dlp
    */
   async start(onChunk: (chunk: AudioChunk) => void): Promise<void> {
     if (this.isCapturing) {
       throw new Error('Already capturing');
     }
 
-    logger.info({ url: this.options.url }, 'Starting YouTube audio capture');
+    logger.info({ url: this.options.url }, 'Starting YouTube audio capture with yt-dlp');
 
     try {
-      // Validate YouTube URL
-      if (!ytdl.validateURL(this.options.url)) {
-        throw new Error('Invalid YouTube URL');
-      }
+      // Get yt-dlp path (assume it's in project root or PATH)
+      const ytDlpPath = process.env.YTDLP_PATH || path.join(process.cwd(), 'resources', 'yt-dlp.exe');
 
-      // Get video info
-      const info = await ytdl.getInfo(this.options.url);
-      logger.info(
-        {
-          title: info.videoDetails.title,
-          duration: info.videoDetails.lengthSeconds,
-          isLive: info.videoDetails.isLiveContent,
-        },
-        'Video info retrieved'
-      );
+      // First, get video info
+      const infoProcess = spawn(ytDlpPath, ['--dump-json', this.options.url]);
 
-      // Create audio stream with highest quality audio only
-      this.stream = ytdl(this.options.url, {
-        quality: this.options.quality,
-        filter: 'audioonly',
-        highWaterMark: 1 << 25, // 32MB buffer
+      let infoData = '';
+      infoProcess.stdout.on('data', (chunk) => {
+        infoData += chunk.toString();
       });
 
+      await new Promise<void>((resolve, reject) => {
+        infoProcess.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error(`yt-dlp info failed with code ${code}`));
+          } else {
+            try {
+              const info = JSON.parse(infoData);
+              logger.info(
+                {
+                  title: info.title,
+                  duration: info.duration,
+                  isLive: info.is_live || false,
+                },
+                'Video info retrieved'
+              );
+              resolve();
+            } catch (err) {
+              reject(new Error('Failed to parse video info'));
+            }
+          }
+        });
+      });
+
+      // Start streaming audio
+      const format = this.options.quality === 'highest' ? 'bestaudio' : 'worstaudio';
+      
+      this.process = spawn(ytDlpPath, [
+        '-f', format,
+        '-o', '-',           // Output to stdout
+        '--no-playlist',     // Don't download playlists
+        '--quiet',           // Suppress output
+        '--no-warnings',     // Suppress warnings
+        this.options.url,
+      ]);
+
+      this.stream = this.process.stdout;
       this.isCapturing = true;
       this.sequenceNumber = 0;
 
@@ -91,7 +117,7 @@ export class YouTubeCaptureService {
         );
       });
 
-      this.stream.on('error', error => {
+      this.stream.on('error', (error) => {
         logger.error({ err: error }, 'YouTube stream error');
         this.stop();
       });
@@ -100,6 +126,24 @@ export class YouTubeCaptureService {
         logger.info('YouTube stream ended');
         this.stop();
       });
+
+      // Handle process errors
+      this.process.stderr?.on('data', (data) => {
+        logger.warn({ stderr: data.toString() }, 'yt-dlp stderr');
+      });
+
+      this.process.on('error', (error) => {
+        logger.error({ err: error }, 'yt-dlp process error');
+        this.stop();
+      });
+
+      this.process.on('exit', (code) => {
+        if (code !== 0 && this.isCapturing) {
+          logger.error({ code }, 'yt-dlp process exited with error');
+          this.stop();
+        }
+      });
+
     } catch (error) {
       this.isCapturing = false;
       logger.error({ err: error }, 'Failed to start YouTube capture');
@@ -115,6 +159,11 @@ export class YouTubeCaptureService {
 
     logger.info('Stopping YouTube audio capture');
     this.isCapturing = false;
+
+    if (this.process) {
+      this.process.kill('SIGTERM');
+      this.process = null;
+    }
 
     if (this.stream) {
       this.stream.destroy();
