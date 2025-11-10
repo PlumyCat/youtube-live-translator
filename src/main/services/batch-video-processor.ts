@@ -90,6 +90,9 @@ export class BatchVideoProcessor extends EventEmitter {
       // Ensure output directory exists
       await fs.mkdir(this.config.outputDirectory, { recursive: true });
 
+      // Cleanup any orphaned temp files from previous failed runs
+      await this.cleanupAllTempFiles();
+
       // Step 1: Download video
       this.updateProgress('downloading', 'Downloading video', 0, 0, 5);
       const { videoPath, title, duration } = await this.downloadVideo(youtubeUrl);
@@ -766,7 +769,41 @@ export class BatchVideoProcessor extends EventEmitter {
   }
 
   /**
-   * Cleanup intermediate files
+   * Cleanup all temporary files in the output directory
+   */
+  private async cleanupAllTempFiles(): Promise<void> {
+    try {
+      const files = await fs.readdir(this.config.outputDirectory);
+
+      // Patterns for temporary files to clean up
+      const tempPatterns = [
+        /^temp-.*\.(m4a|mp4|mp3|txt)$/, // temp-*.m4a, temp-*.mp4, temp-*.mp3, temp-*.txt
+        /^segment-\d+\.pcm$/, // segment-N.pcm
+        /^filelist\.txt$/, // filelist.txt
+      ];
+
+      const filesToDelete = files.filter(file =>
+        tempPatterns.some(pattern => pattern.test(file))
+      );
+
+      if (filesToDelete.length > 0) {
+        logger.info({ count: filesToDelete.length, files: filesToDelete }, 'Cleaning up temporary files');
+
+        await Promise.allSettled(
+          filesToDelete.map(file =>
+            fs.unlink(path.join(this.config.outputDirectory, file))
+          )
+        );
+
+        logger.info({ cleaned: filesToDelete.length }, 'Temporary files cleanup completed');
+      }
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to cleanup temporary files');
+    }
+  }
+
+  /**
+   * Cleanup intermediate files for a specific processing run
    */
   private async cleanup(videoPath: string, segments: VideoSegment[], processed: ProcessedSegment[]): Promise<void> {
     try {
