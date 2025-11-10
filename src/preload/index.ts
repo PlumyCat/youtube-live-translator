@@ -37,6 +37,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('error', subscription);
     return () => ipcRenderer.removeListener('error', subscription);
   },
+
+  // Batch processing
+  startBatch: (url: string) => ipcRenderer.invoke('batch:start', url),
+  getBatchProgress: () => ipcRenderer.invoke('batch:getProgress'),
+  stopBatch: () => ipcRenderer.invoke('batch:stop'),
+
+  onBatchProgress: (callback: (progress: any) => void) => {
+    const subscription = (_event: unknown, progress: any) => callback(progress);
+    ipcRenderer.on('batch:progress', subscription);
+    return () => ipcRenderer.removeListener('batch:progress', subscription);
+  },
+
+  onBatchCompleted: (callback: (result: any) => void) => {
+    const subscription = (_event: unknown, result: any) => callback(result);
+    ipcRenderer.on('batch:completed', subscription);
+    return () => ipcRenderer.removeListener('batch:completed', subscription);
+  },
+
+  onBatchError: (callback: (error: any) => void) => {
+    const subscription = (_event: unknown, error: any) => callback(error);
+    ipcRenderer.on('batch:error', subscription);
+    return () => ipcRenderer.removeListener('batch:error', subscription);
+  },
 });
 
 // Type declarations for TypeScript
@@ -50,6 +73,13 @@ declare global {
       onTranslationUpdate: (callback: (text: string) => void) => () => void;
       onStatusChange: (callback: (status: string) => void) => () => void;
       onError: (callback: (error: string) => void) => () => void;
+      // Batch processing
+      startBatch: (url: string) => Promise<any>;
+      getBatchProgress: () => Promise<any>;
+      stopBatch: () => Promise<void>;
+      onBatchProgress: (callback: (progress: any) => void) => () => void;
+      onBatchCompleted: (callback: (result: any) => void) => () => void;
+      onBatchError: (callback: (error: any) => void) => () => void;
     };
   }
 }

@@ -63,3 +63,6 @@ playwright/.cache/
 resources/yt-dlp.exe
 *-player-script.js
 resources/ffmpeg/
+
+# External binaries (downloaded locally)
+bin/

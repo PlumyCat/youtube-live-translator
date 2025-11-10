@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { registerPipelineHandlers, cleanupPipelineHandlers } from './ipc/pipeline-handlers';
+import { registerBatchHandlers, cleanupBatchHandlers } from './ipc/batch-handlers';
 import { logger } from './utils/logger';
 
 // Load environment variables
@@ -36,6 +37,7 @@ function createWindow(): void {
 
   // Register IPC handlers
   registerPipelineHandlers(mainWindow);
+  registerBatchHandlers(mainWindow);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -58,8 +60,9 @@ app.whenReady().then(() => {
 app.on('window-all-closed', async () => {
   logger.info('All windows closed');
 
-  // Cleanup pipeline
+  // Cleanup handlers
   await cleanupPipelineHandlers();
+  await cleanupBatchHandlers();
 
   if (process.platform !== 'darwin') {
     app.quit();

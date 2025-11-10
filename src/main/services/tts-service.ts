@@ -74,7 +74,7 @@ export class GoogleCloudTTSService implements TTSService {
               voice: {
                 languageCode: this.config.language,
                 name: this.config.voiceName,
-                ssmlGender: 'NEUTRAL',
+                ssmlGender: 'FEMALE', // fr-FR-Neural2-A is a female voice
               },
               audioConfig: {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any

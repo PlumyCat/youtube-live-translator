@@ -22,7 +22,9 @@
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,json,css}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:pipeline": "tsx scripts/test-pipeline-simple.ts",
+    "test:stt": "tsx scripts/test-stt-with-speech.ts"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
@@ -59,6 +61,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tailwindcss": "^3.3.6",
+    "tsx": "^4.20.6",
     "typescript": "^5.3.3",
     "vite": "^7.2.1",
     "vitest": "^4.0.7"
