@@ -72,6 +72,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File operations
   openExternal: (path: string) => ipcRenderer.invoke('shell:openExternal', path),
   showItemInFolder: (path: string) => ipcRenderer.invoke('shell:showItemInFolder', path),
+
+  // Service configuration
+  getServiceConfig: () => ipcRenderer.invoke('config:get'),
+  saveServiceConfig: (config: any) => ipcRenderer.invoke('config:save', config),
+  selectKeyFile: () => ipcRenderer.invoke('config:select-key-file'),
+  validateKeyFile: (filePath: string) => ipcRenderer.invoke('config:validate-key-file', filePath),
+  testConnection: () => ipcRenderer.invoke('config:test-connection'),
 });
 
 // Type declarations for TypeScript
@@ -98,6 +105,12 @@ declare global {
       // File operations
       openExternal: (path: string) => Promise<void>;
       showItemInFolder: (path: string) => Promise<void>;
+      // Service configuration
+      getServiceConfig: () => Promise<any>;
+      saveServiceConfig: (config: any) => Promise<{ success: boolean }>;
+      selectKeyFile: () => Promise<string | null>;
+      validateKeyFile: (filePath: string) => Promise<boolean>;
+      testConnection: () => Promise<{ success: boolean; message: string }>;
     };
   }
 }

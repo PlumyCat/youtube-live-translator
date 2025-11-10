@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { registerPipelineHandlers, cleanupPipelineHandlers } from './ipc/pipeline-handlers';
 import { registerBatchHandlers, cleanupBatchHandlers } from './ipc/batch-handlers';
+import { registerConfigHandlers } from './ipc/config-handlers';
 import { logger } from './utils/logger';
 
 // Load environment variables
@@ -38,6 +39,7 @@ function createWindow(): void {
   // Register IPC handlers
   registerPipelineHandlers(mainWindow);
   registerBatchHandlers(mainWindow);
+  registerConfigHandlers();
 
   mainWindow.on('closed', () => {
     mainWindow = null;

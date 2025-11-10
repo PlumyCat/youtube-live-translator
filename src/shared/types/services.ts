@@ -82,3 +82,24 @@ export interface ServiceHealth {
   metrics: ServiceMetrics;
   timestamp: number;
 }
+
+// Service Configuration (for Settings)
+export interface ServiceConfig {
+  googleCloud: {
+    projectId: string;
+    keyFilePath: string;
+  };
+  deepl: {
+    apiKey: string;
+  };
+}
+
+export type PartialServiceConfig = {
+  googleCloud?: {
+    projectId?: string;
+    keyFilePath?: string;
+  };
+  deepl?: {
+    apiKey?: string;
+  };
+};

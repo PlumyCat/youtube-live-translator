@@ -1,9 +1,31 @@
 import { useState, useEffect } from 'react';
+import type { PartialServiceConfig } from '@shared/types';
 
 interface ServiceConfig {
   googleCloudProjectId: string;
   googleCloudKeyPath: string;
   deeplApiKey: string;
+}
+
+// Helper to convert between formats
+function toServiceConfig(config: PartialServiceConfig): ServiceConfig {
+  return {
+    googleCloudProjectId: config.googleCloud?.projectId || '',
+    googleCloudKeyPath: config.googleCloud?.keyFilePath || '',
+    deeplApiKey: config.deepl?.apiKey || '',
+  };
+}
+
+function toPartialServiceConfig(config: ServiceConfig): PartialServiceConfig {
+  return {
+    googleCloud: {
+      projectId: config.googleCloudProjectId,
+      keyFilePath: config.googleCloudKeyPath,
+    },
+    deepl: {
+      apiKey: config.deeplApiKey,
+    },
+  };
 }
 
 interface SettingsPageProps {
@@ -26,9 +48,8 @@ export function SettingsPage({ onBack }: SettingsPageProps = {}) {
 
   const loadConfig = async () => {
     try {
-      // TODO: Implement IPC call to load config
-      // const loadedConfig = await window.electronAPI.getServiceConfig();
-      // setConfig(loadedConfig);
+      const loadedConfig = await window.electronAPI.getServiceConfig();
+      setConfig(toServiceConfig(loadedConfig));
     } catch (error) {
       console.error('Failed to load config:', error);
     }
@@ -39,8 +60,7 @@ export function SettingsPage({ onBack }: SettingsPageProps = {}) {
     setSaveMessage('');
 
     try {
-      // TODO: Implement IPC call to save config
-      // await window.electronAPI.saveServiceConfig(config);
+      await window.electronAPI.saveServiceConfig(toPartialServiceConfig(config));
       setSaveMessage('Configuration sauvegardée avec succès!');
       setTimeout(() => setSaveMessage(''), 3000);
     } catch (error) {
@@ -51,8 +71,14 @@ export function SettingsPage({ onBack }: SettingsPageProps = {}) {
   };
 
   const handleTestConnection = async () => {
-    // TODO: Implement connection test
-    alert('Test de connexion à venir...');
+    setSaveMessage('Test de connexion en cours...');
+    try {
+      const result = await window.electronAPI.testConnection();
+      setSaveMessage(result.message);
+      setTimeout(() => setSaveMessage(''), 5000);
+    } catch (error) {
+      setSaveMessage('Erreur lors du test: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
   };
 
   return (
@@ -145,7 +171,12 @@ export function SettingsPage({ onBack }: SettingsPageProps = {}) {
                   className="flex-1 px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
                 <button
-                  onClick={() => alert('Sélection de fichier à venir...')}
+                  onClick={async () => {
+                    const filePath = await window.electronAPI.selectKeyFile();
+                    if (filePath) {
+                      setConfig(prev => ({ ...prev, googleCloudKeyPath: filePath }));
+                    }
+                  }}
                   className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
                 >
                   Parcourir
