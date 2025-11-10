@@ -80,7 +80,7 @@ export class GoogleCloudTTSService implements TTSService {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 audioEncoding: this.config.audioEncoding as any,
                 sampleRateHertz: this.config.sampleRate,
-                speakingRate: 1.0,
+                speakingRate: 0.85, // Slightly slower for better sync with video timing
                 pitch: 0.0,
               },
             });

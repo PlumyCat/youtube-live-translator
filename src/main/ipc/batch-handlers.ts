@@ -1,7 +1,7 @@
 /**
  * IPC Handlers for Batch Processing
  */
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow, shell } from 'electron';
 import { createComponentLogger } from '@main/utils/logger';
 import { BatchVideoProcessor } from '@main/services/batch-video-processor';
 import { GoogleCloudSTTService } from '@main/services/stt-service';
@@ -21,8 +21,8 @@ export function registerBatchHandlers(mainWindow: BrowserWindow): void {
   logger.info('Registering batch processing IPC handlers');
 
   // Start batch processing
-  ipcMain.handle('batch:start', async (_event, youtubeUrl: string) => {
-    logger.info({ url: youtubeUrl }, 'Batch processing start requested');
+  ipcMain.handle('batch:start', async (_event, youtubeUrl: string, collectionName?: string) => {
+    logger.info({ url: youtubeUrl, collection: collectionName }, 'Batch processing start requested');
 
     try {
       // Initialize services
@@ -46,7 +46,10 @@ export function registerBatchHandlers(mainWindow: BrowserWindow): void {
         {
           segmentDuration: 30, // 30 seconds per segment
           maxConcurrentSegments: 1,
+          collectionName: collectionName,
           keepIntermediateFiles: false,
+          generateVideo: true,
+          generateTranscripts: true,
         }
       );
 
@@ -97,6 +100,27 @@ export function registerBatchHandlers(mainWindow: BrowserWindow): void {
     batchProcessor = null;
   });
 
+  // Shell operations for opening files
+  ipcMain.handle('shell:openExternal', async (_event, path: string) => {
+    logger.info({ path }, 'Opening file with external application');
+    try {
+      await shell.openPath(path);
+    } catch (error) {
+      logger.error({ err: error, path }, 'Failed to open file');
+      throw error;
+    }
+  });
+
+  ipcMain.handle('shell:showItemInFolder', async (_event, path: string) => {
+    logger.info({ path }, 'Showing item in folder');
+    try {
+      shell.showItemInFolder(path);
+    } catch (error) {
+      logger.error({ err: error, path }, 'Failed to show item in folder');
+      throw error;
+    }
+  });
+
   logger.info('Batch processing IPC handlers registered');
 }
 
@@ -109,4 +133,6 @@ export async function cleanupBatchHandlers(): Promise<void> {
   ipcMain.removeHandler('batch:start');
   ipcMain.removeHandler('batch:getProgress');
   ipcMain.removeHandler('batch:stop');
+  ipcMain.removeHandler('shell:openExternal');
+  ipcMain.removeHandler('shell:showItemInFolder');
 }

@@ -39,7 +39,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Batch processing
-  startBatch: (url: string) => ipcRenderer.invoke('batch:start', url),
+  startBatch: (url: string, collectionName?: string) => ipcRenderer.invoke('batch:start', url, collectionName),
   getBatchProgress: () => ipcRenderer.invoke('batch:getProgress'),
   stopBatch: () => ipcRenderer.invoke('batch:stop'),
 
@@ -60,6 +60,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('batch:error', subscription);
     return () => ipcRenderer.removeListener('batch:error', subscription);
   },
+
+  // File operations
+  openExternal: (path: string) => ipcRenderer.invoke('shell:openExternal', path),
+  showItemInFolder: (path: string) => ipcRenderer.invoke('shell:showItemInFolder', path),
 });
 
 // Type declarations for TypeScript
@@ -74,12 +78,15 @@ declare global {
       onStatusChange: (callback: (status: string) => void) => () => void;
       onError: (callback: (error: string) => void) => () => void;
       // Batch processing
-      startBatch: (url: string) => Promise<any>;
+      startBatch: (url: string, collectionName?: string) => Promise<any>;
       getBatchProgress: () => Promise<any>;
       stopBatch: () => Promise<void>;
       onBatchProgress: (callback: (progress: any) => void) => () => void;
       onBatchCompleted: (callback: (result: any) => void) => () => void;
       onBatchError: (callback: (error: any) => void) => () => void;
+      // File operations
+      openExternal: (path: string) => Promise<void>;
+      showItemInFolder: (path: string) => Promise<void>;
     };
   }
 }

@@ -59,12 +59,24 @@ export class BatchVideoProcessor extends EventEmitter {
     config?: Partial<BatchConfig>
   ) {
     super();
+
+    // Calculate base output directory
+    const baseOutputDir = config?.outputDirectory || path.join(app.getPath('userData'), 'batch-output');
+
+    // If collection name provided, create subdirectory
+    const finalOutputDir = config?.collectionName
+      ? path.join(baseOutputDir, this.sanitizeFilename(config.collectionName))
+      : baseOutputDir;
+
     this.config = {
       segmentDuration: 30, // 30 seconds per segment
       maxConcurrentSegments: 1, // Process one at a time for now
-      outputDirectory: path.join(app.getPath('userData'), 'batch-output'),
       keepIntermediateFiles: false,
+      generateVideo: true, // Generate video with French audio
+      generateTranscripts: true, // Generate transcript files
       ...config,
+      collectionName: config?.collectionName,
+      outputDirectory: finalOutputDir, // Override to ensure it uses the calculated path
     };
   }
 
@@ -98,6 +110,27 @@ export class BatchVideoProcessor extends EventEmitter {
       const finalAudioPath = await this.assembleFinalAudio(processedSegments, title);
       logger.info({ path: finalAudioPath }, 'Final audio assembled');
 
+      // Step 5: Generate transcripts (optional)
+      let transcriptOriginalPath: string | undefined;
+      let transcriptTranslatedPath: string | undefined;
+
+      if (this.config.generateTranscripts) {
+        this.updateProgress('assembling', 'Generating transcripts', segments.length, segments.length, 97);
+        const transcripts = await this.generateTranscripts(processedSegments, title);
+        transcriptOriginalPath = transcripts.original;
+        transcriptTranslatedPath = transcripts.translated;
+        logger.info({ original: transcriptOriginalPath, translated: transcriptTranslatedPath }, 'Transcripts generated');
+      }
+
+      // Step 6: Generate video with French audio (optional)
+      let finalVideoPath: string | undefined;
+
+      if (this.config.generateVideo) {
+        this.updateProgress('assembling', 'Generating video with French audio', segments.length, segments.length, 98);
+        finalVideoPath = await this.generateVideoWithFrenchAudio(youtubeUrl, finalAudioPath, title);
+        logger.info({ path: finalVideoPath }, 'Video with French audio generated');
+      }
+
       // Cleanup
       if (!this.config.keepIntermediateFiles) {
         await this.cleanup(videoPath, segments, processedSegments);
@@ -110,6 +143,9 @@ export class BatchVideoProcessor extends EventEmitter {
         totalSegments: segments.length,
         processedSegments,
         finalAudioPath,
+        finalVideoPath,
+        transcriptOriginalPath,
+        transcriptTranslatedPath,
         processingTime: Date.now() - startTime,
       };
 
@@ -268,6 +304,146 @@ export class BatchVideoProcessor extends EventEmitter {
   }
 
   /**
+   * Get audio duration using ffprobe
+   */
+  private async getAudioDuration(audioPath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        audioPath,
+      ]);
+
+      let stdout = '';
+      let stderr = '';
+
+      ffprobe.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      ffprobe.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      ffprobe.on('close', (code) => {
+        if (code === 0) {
+          const duration = parseFloat(stdout.trim());
+          resolve(duration);
+        } else {
+          reject(new Error(`ffprobe failed: ${stderr}`));
+        }
+      });
+
+      ffprobe.on('error', reject);
+    });
+  }
+
+  /**
+   * Pad audio with silence to match target duration
+   */
+  private async padAudioWithSilence(inputPath: string, targetDuration: number, outputPath: string): Promise<void> {
+    // Get current duration
+    const currentDuration = await this.getAudioDuration(inputPath);
+
+    logger.debug({ inputPath, currentDuration, targetDuration }, 'Checking audio duration for padding');
+
+    // If already at or exceeds target duration, just copy the file
+    if (currentDuration >= targetDuration - 0.1) { // 0.1s tolerance
+      await fs.copyFile(inputPath, outputPath);
+      logger.debug({ inputPath, outputPath }, 'Audio duration OK, no padding needed');
+      return;
+    }
+
+    // Calculate silence duration needed
+    const silenceDuration = targetDuration - currentDuration;
+
+    logger.info({
+      inputPath,
+      currentDuration,
+      targetDuration,
+      silenceDuration,
+      paddingPercent: ((silenceDuration / targetDuration) * 100).toFixed(1) + '%'
+    }, 'Padding audio with silence');
+
+    // Create silence file
+    const silencePath = path.join(this.config.outputDirectory, `temp-silence-${Date.now()}.mp3`);
+
+    await new Promise<void>((resolve, reject) => {
+      const ffmpeg = spawn('ffmpeg', [
+        '-f', 'lavfi',
+        '-i', `anullsrc=r=24000:cl=mono`,
+        '-t', silenceDuration.toString(),
+        '-c:a', 'libmp3lame',
+        '-b:a', '192k',
+        '-y',
+        silencePath,
+      ]);
+
+      let stderr = '';
+
+      ffmpeg.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`ffmpeg silence generation failed: ${stderr}`));
+        }
+      });
+
+      ffmpeg.on('error', reject);
+    });
+
+    // Create concat file list
+    const concatListPath = path.join(this.config.outputDirectory, `temp-concat-${Date.now()}.txt`);
+    const concatList = `file '${inputPath.replace(/\\/g, '/')}'\nfile '${silencePath.replace(/\\/g, '/')}'`;
+    await fs.writeFile(concatListPath, concatList, 'utf-8');
+
+    // Concatenate audio + silence
+    await new Promise<void>((resolve, reject) => {
+      const ffmpeg = spawn('ffmpeg', [
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', concatListPath,
+        '-c:a', 'libmp3lame',
+        '-b:a', '192k',
+        '-ar', '24000',
+        '-y',
+        outputPath,
+      ]);
+
+      let stderr = '';
+
+      ffmpeg.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`ffmpeg concat failed: ${stderr}`));
+        }
+      });
+
+      ffmpeg.on('error', reject);
+    });
+
+    // Cleanup temp files
+    try {
+      await fs.unlink(silencePath);
+      await fs.unlink(concatListPath);
+    } catch (error) {
+      logger.warn({ err: error }, 'Failed to cleanup temp files');
+    }
+
+    logger.debug({ outputPath, finalDuration: await this.getAudioDuration(outputPath) }, 'Audio padded successfully');
+  }
+
+  /**
    * Process all segments
    */
   private async processSegments(segments: VideoSegment[]): Promise<ProcessedSegment[]> {
@@ -321,6 +497,7 @@ export class BatchVideoProcessor extends EventEmitter {
           audioData: ttsResult.audioContent,
           confidence: sttResult.confidence,
           duration: ttsResult.duration,
+          originalDuration: segment.duration, // Duration of original segment for sync
         });
 
         logger.info({ segment: i + 1, confidence: sttResult.confidence }, 'Segment processed successfully');
@@ -353,11 +530,26 @@ export class BatchVideoProcessor extends EventEmitter {
     const fileListPath = path.join(this.config.outputDirectory, 'filelist.txt');
     const tempFiles: string[] = [];
 
-    // Write each segment to a temp file
+    // Write each segment to a temp file and pad with silence to match original duration
     for (let i = 0; i < sortedSegments.length; i++) {
-      const tempFile = path.join(this.config.outputDirectory, `temp-segment-${i}.mp3`);
-      await fs.writeFile(tempFile, sortedSegments[i].audioData);
-      tempFiles.push(tempFile);
+      const segment = sortedSegments[i];
+
+      // Write raw TTS audio to temp file
+      const rawTempFile = path.join(this.config.outputDirectory, `temp-segment-raw-${i}.mp3`);
+      await fs.writeFile(rawTempFile, segment.audioData);
+
+      // Pad with silence to match original segment duration
+      const paddedTempFile = path.join(this.config.outputDirectory, `temp-segment-${i}.mp3`);
+      await this.padAudioWithSilence(rawTempFile, segment.originalDuration, paddedTempFile);
+
+      tempFiles.push(paddedTempFile);
+
+      // Cleanup raw file
+      try {
+        await fs.unlink(rawTempFile);
+      } catch (error) {
+        logger.warn({ err: error }, 'Failed to cleanup raw segment file');
+      }
     }
 
     // Create file list for ffmpeg concat
@@ -401,6 +593,176 @@ export class BatchVideoProcessor extends EventEmitter {
     ]);
 
     return outputPath;
+  }
+
+  /**
+   * Generate transcript files in Markdown format
+   */
+  private async generateTranscripts(segments: ProcessedSegment[], title: string): Promise<{ original: string; translated: string }> {
+    const sanitizedTitle = this.sanitizeFilename(title);
+
+    // Generate original (English) transcript
+    const originalContent = this.buildMarkdownTranscript(
+      segments.map(s => ({ index: s.index, text: s.originalText, confidence: s.confidence })),
+      title,
+      'en'
+    );
+
+    const originalPath = path.join(this.config.outputDirectory, `${sanitizedTitle}_transcript_EN.md`);
+    await fs.writeFile(originalPath, originalContent, 'utf-8');
+
+    // Generate translated (French) transcript
+    const translatedContent = this.buildMarkdownTranscript(
+      segments.map(s => ({ index: s.index, text: s.translatedText })),
+      title,
+      'fr'
+    );
+
+    const translatedPath = path.join(this.config.outputDirectory, `${sanitizedTitle}_transcript_FR.md`);
+    await fs.writeFile(translatedPath, translatedContent, 'utf-8');
+
+    return { original: originalPath, translated: translatedPath };
+  }
+
+  /**
+   * Build Markdown content for transcript
+   */
+  private buildMarkdownTranscript(
+    items: Array<{ index: number; text: string; confidence?: number }>,
+    title: string,
+    language: 'en' | 'fr'
+  ): string {
+    const languageName = language === 'en' ? 'English' : 'Français';
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    let markdown = `# ${title}\n\n`;
+    markdown += `**Language**: ${languageName}\n`;
+    markdown += `**Generated**: ${timestamp}\n`;
+    markdown += `**Total Segments**: ${items.length}\n\n`;
+    markdown += `---\n\n`;
+
+    for (const item of items) {
+      markdown += `## Segment ${item.index + 1}\n\n`;
+
+      if (item.confidence !== undefined) {
+        const confidencePercent = (item.confidence * 100).toFixed(1);
+        markdown += `*Confidence: ${confidencePercent}%*\n\n`;
+      }
+
+      markdown += `${item.text}\n\n`;
+      markdown += `---\n\n`;
+    }
+
+    // Add footer
+    markdown += `\n\n---\n\n`;
+    markdown += `*Generated by YouTube Live Translator*\n`;
+    markdown += `*Powered by Google Cloud STT, DeepL Translation, and Google Cloud TTS*\n`;
+
+    return markdown;
+  }
+
+  /**
+   * Generate video with French audio
+   */
+  private async generateVideoWithFrenchAudio(youtubeUrl: string, frenchAudioPath: string, title: string): Promise<string> {
+    const sanitizedTitle = this.sanitizeFilename(title);
+
+    // Step 1: Download full video (not just audio)
+    const videoPath = await this.downloadFullVideo(youtubeUrl);
+    logger.info({ path: videoPath }, 'Full video downloaded');
+
+    // Step 2: Merge video with French audio using ffmpeg
+    const outputPath = path.join(this.config.outputDirectory, `${sanitizedTitle}_FR.mp4`);
+
+    await new Promise<void>((resolve, reject) => {
+      const ffmpeg = spawn('ffmpeg', [
+        '-i', videoPath,           // Input: Original video
+        '-i', frenchAudioPath,     // Input: French audio
+        '-c:v', 'copy',            // Copy video stream (no re-encoding)
+        '-c:a', 'aac',             // Encode audio to AAC
+        '-b:a', '192k',            // Audio bitrate
+        '-map', '0:v:0',           // Map video from first input
+        '-map', '1:a:0',           // Map audio from second input
+        '-shortest',               // End at shortest stream
+        '-y',                      // Overwrite output
+        outputPath,
+      ]);
+
+      let stderr = '';
+
+      ffmpeg.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`ffmpeg video merge failed: ${stderr}`));
+        }
+      });
+
+      ffmpeg.on('error', reject);
+    });
+
+    // Cleanup downloaded video
+    try {
+      await fs.unlink(videoPath);
+    } catch (error) {
+      logger.warn({ err: error }, 'Failed to cleanup downloaded video');
+    }
+
+    return outputPath;
+  }
+
+  /**
+   * Download full video (video + audio) from YouTube
+   */
+  private async downloadFullVideo(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const outputPath = path.join(this.config.outputDirectory, `temp-video-${Date.now()}.mp4`);
+      const ytdlpPath = getYtDlpPath();
+
+      // Download best video+audio merged format
+      const ytdlp = spawn(ytdlpPath, [
+        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        '-o', outputPath,
+        '--no-playlist',
+        '--merge-output-format', 'mp4',
+        url,
+      ]);
+
+      let stderr = '';
+
+      ytdlp.stderr.on('data', (data) => {
+        const error = data.toString();
+        stderr += error;
+        logger.debug({ stderr: error }, 'yt-dlp video stderr');
+      });
+
+      ytdlp.on('close', async (code) => {
+        if (code === 0) {
+          try {
+            const stats = await fs.stat(outputPath);
+            if (stats.size === 0) {
+              reject(new Error('yt-dlp downloaded empty video file'));
+              return;
+            }
+            logger.info({ outputPath, fileSize: stats.size }, 'yt-dlp video download successful');
+            resolve(outputPath);
+          } catch (error) {
+            reject(new Error(`yt-dlp succeeded but video file not found: ${outputPath}`));
+          }
+        } else {
+          reject(new Error(`yt-dlp video download failed (exit code ${code}): ${stderr}`));
+        }
+      });
+
+      ytdlp.on('error', (error) => {
+        logger.error({ err: error, ytdlpPath }, 'yt-dlp video spawn error');
+        reject(error);
+      });
+    });
   }
 
   /**
