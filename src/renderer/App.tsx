@@ -1,64 +1,91 @@
 import { useState, useEffect } from 'react';
-import { BatchProgressBar } from './components/BatchProgressBar';
-import type { BatchProgress, BatchResult } from '@shared/types/batch';
+import { QueueItemCard } from './components/QueueItemCard';
+import type { QueueState, QueueItem } from '@shared/types/batch';
 
 function App() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [collectionName, setCollectionName] = useState('');
   const [error, setError] = useState('');
-
-  // Batch mode state
-  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
-  const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
+  const [queueState, setQueueState] = useState<QueueState>({
+    items: [],
+    isProcessing: false,
+  });
 
   useEffect(() => {
-    // Setup batch event listeners
-    const unsubBatchProgress = window.electronAPI.onBatchProgress((progress: BatchProgress) => {
-      setBatchProgress(progress);
+    // Load initial queue state
+    window.electronAPI.getQueue().then(setQueueState).catch(console.error);
+
+    // Setup queue event listeners
+    const unsubQueueUpdate = window.electronAPI.onQueueUpdate((state: QueueState) => {
+      setQueueState(state);
     });
 
-    const unsubBatchCompleted = window.electronAPI.onBatchCompleted((result: BatchResult) => {
-      setBatchResult(result);
-      setBatchProgress(null);
+    const unsubItemProgress = window.electronAPI.onQueueItemProgress((item: QueueItem) => {
+      setQueueState(prev => ({
+        ...prev,
+        items: prev.items.map(i => i.id === item.id ? item : i),
+      }));
     });
 
-    const unsubBatchError = window.electronAPI.onBatchError((err: any) => {
-      setError(err.message || 'Batch processing failed');
-      setBatchProgress(null);
+    const unsubItemCompleted = window.electronAPI.onQueueItemCompleted((item: QueueItem) => {
+      setQueueState(prev => ({
+        ...prev,
+        items: prev.items.map(i => i.id === item.id ? item : i),
+      }));
+    });
+
+    const unsubItemError = window.electronAPI.onQueueItemError((item: QueueItem) => {
+      setQueueState(prev => ({
+        ...prev,
+        items: prev.items.map(i => i.id === item.id ? item : i),
+      }));
     });
 
     // Cleanup on unmount
     return () => {
-      unsubBatchProgress();
-      unsubBatchCompleted();
-      unsubBatchError();
+      unsubQueueUpdate();
+      unsubItemProgress();
+      unsubItemCompleted();
+      unsubItemError();
     };
   }, []);
 
-  const handleStart = async () => {
+  const handleAddToQueue = async () => {
     if (!youtubeUrl.trim()) {
-      setError('Please enter a YouTube URL');
+      setError('Veuillez entrer une URL YouTube');
       return;
     }
 
     try {
       setError('');
-      setBatchResult(null);
-
-      // Start batch processing
-      await window.electronAPI.startBatch(youtubeUrl, collectionName.trim() || undefined);
+      await window.electronAPI.addToQueue(youtubeUrl, collectionName.trim() || undefined);
+      setYoutubeUrl(''); // Clear input after adding
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start batch processing');
-      setBatchProgress(null);
+      setError(err instanceof Error ? err.message : 'Erreur lors de l\'ajout à la queue');
     }
   };
 
-  const handleStop = async () => {
+  const handleRemoveFromQueue = async (itemId: string) => {
     try {
-      await window.electronAPI.stopBatch();
-      setBatchProgress(null);
+      await window.electronAPI.removeFromQueue(itemId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to stop processing');
+      setError(err instanceof Error ? err.message : 'Erreur lors de la suppression');
+    }
+  };
+
+  const handleClearQueue = async () => {
+    try {
+      await window.electronAPI.clearQueue();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la suppression de la queue');
+    }
+  };
+
+  const handleStopQueue = async () => {
+    try {
+      await window.electronAPI.stopQueue();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de l\'arrêt');
     }
   };
 
@@ -66,7 +93,7 @@ function App() {
     try {
       await window.electronAPI.openExternal(filePath);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open file');
+      setError(err instanceof Error ? err.message : 'Erreur lors de l\'ouverture du fichier');
     }
   };
 
@@ -74,217 +101,150 @@ function App() {
     try {
       await window.electronAPI.showItemInFolder(filePath);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open folder');
+      setError(err instanceof Error ? err.message : 'Erreur lors de l\'ouverture du dossier');
     }
   };
+
+  const pendingCount = queueState.items.filter(i => i.status === 'pending').length;
+  const processingCount = queueState.items.filter(i => i.status === 'processing').length;
+  const completedCount = queueState.items.filter(i => i.status === 'completed').length;
+  const errorCount = queueState.items.filter(i => i.status === 'error').length;
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
       {/* Header */}
       <header className="p-4 bg-gray-800 border-b border-gray-700">
-        <div>
-          <h1 className="text-2xl font-bold text-primary-400">YouTube Live Translator</h1>
-          <p className="text-sm text-gray-400">
-            Traduction batch - English → French
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-primary-400">YouTube Live Translator</h1>
+            <p className="text-sm text-gray-400">
+              File d'attente de traduction - English → French
+            </p>
+          </div>
+          <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400">⏳ Pending:</span>
+              <span className="font-medium">{pendingCount}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-blue-400">⚙️ Processing:</span>
+              <span className="font-medium">{processingCount}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-green-400">✅ Completed:</span>
+              <span className="font-medium">{completedCount}</span>
+            </div>
+            {errorCount > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-red-400">❌ Errors:</span>
+                <span className="font-medium">{errorCount}</span>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-4xl mx-auto space-y-6">
-          {/* URL Input */}
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="youtube-url" className="block text-sm font-medium">
-                YouTube URL
-              </label>
-              <input
-                id="youtube-url"
-                type="text"
-                value={youtubeUrl}
-                onChange={e => setYoutubeUrl(e.target.value)}
-                placeholder="https://youtube.com/watch?v=..."
-                className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                disabled={!!batchProgress}
-              />
+        <div className="max-w-6xl mx-auto space-y-6">
+          {/* Add to Queue Form */}
+          <div className="p-6 bg-gray-800 border border-gray-700 rounded-lg space-y-4">
+            <h2 className="text-lg font-semibold text-primary-400">Ajouter une vidéo</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label htmlFor="youtube-url" className="block text-sm font-medium">
+                  URL YouTube
+                </label>
+                <input
+                  id="youtube-url"
+                  type="text"
+                  value={youtubeUrl}
+                  onChange={e => setYoutubeUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddToQueue()}
+                  placeholder="https://youtube.com/watch?v=..."
+                  className="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="collection-name" className="block text-sm font-medium">
+                  Collection <span className="text-gray-500">(optionnel)</span>
+                </label>
+                <input
+                  id="collection-name"
+                  type="text"
+                  value={collectionName}
+                  onChange={e => setCollectionName(e.target.value)}
+                  placeholder="Ex: Série Python, Tutoriels React..."
+                  className="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="collection-name" className="block text-sm font-medium">
-                Collection / Groupe <span className="text-gray-500">(optionnel)</span>
-              </label>
-              <input
-                id="collection-name"
-                type="text"
-                value={collectionName}
-                onChange={e => setCollectionName(e.target.value)}
-                placeholder="Ex: Série Python, Tutoriels React, etc."
-                className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                disabled={!!batchProgress}
-              />
-              <p className="text-xs text-gray-500">
-                Les vidéos de la même collection seront regroupées dans un dossier dédié
-              </p>
-            </div>
-
-            {!batchProgress ? (
+            <div className="flex gap-3">
               <button
-                onClick={handleStart}
-                className="w-full px-6 py-3 bg-primary-600 hover:bg-primary-700 rounded-lg font-medium transition-colors disabled:opacity-50"
+                onClick={handleAddToQueue}
+                className="px-6 py-2 bg-primary-600 hover:bg-primary-700 rounded-lg font-medium transition-colors disabled:opacity-50"
                 disabled={!youtubeUrl.trim()}
               >
-                Lancer le traitement
+                Ajouter à la file
               </button>
-            ) : (
-              <button
-                onClick={handleStop}
-                className="w-full px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-colors"
-              >
-                Arrêter
-              </button>
+
+              {pendingCount > 0 && (
+                <button
+                  onClick={handleClearQueue}
+                  className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors"
+                >
+                  Vider la file ({pendingCount})
+                </button>
+              )}
+
+              {queueState.isProcessing && (
+                <button
+                  onClick={handleStopQueue}
+                  className="px-6 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-colors"
+                >
+                  Arrêter le traitement
+                </button>
+              )}
+            </div>
+
+            {/* Error Display */}
+            {error && (
+              <div className="p-3 bg-red-900/20 border border-red-500 rounded-lg">
+                <p className="text-sm text-red-400">{error}</p>
+              </div>
             )}
           </div>
 
-          {/* Error Display */}
-          {error && (
-            <div className="p-4 bg-red-900/20 border border-red-500 rounded-lg">
-              <p className="text-red-400">{error}</p>
-            </div>
-          )}
-
-          {/* Batch Progress */}
-          {batchProgress && (
-            <BatchProgressBar progress={batchProgress} />
-          )}
-
-          {/* Batch Result */}
-          {batchResult && (
-            <div className="p-6 bg-green-900/20 border border-green-500 rounded-lg space-y-6">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">✅</span>
-                <div>
-                  <h3 className="text-xl font-semibold text-green-400">Traitement terminé !</h3>
-                  <p className="text-sm text-gray-400">Vidéo : {batchResult.videoTitle}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-green-700/50">
-                <div>
-                  <p className="text-xs text-gray-400">Durée vidéo</p>
-                  <p className="text-lg font-medium text-white">{Math.floor(batchResult.videoDuration / 60)}min</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Segments traités</p>
-                  <p className="text-lg font-medium text-white">{batchResult.processedSegments.length} / {batchResult.totalSegments}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Temps de traitement</p>
-                  <p className="text-lg font-medium text-white">{Math.floor(batchResult.processingTime / 1000)}s</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Confiance moyenne</p>
-                  <p className="text-lg font-medium text-white">
-                    {(batchResult.processedSegments.reduce((acc, s) => acc + s.confidence, 0) / batchResult.processedSegments.length * 100).toFixed(0)}%
-                  </p>
-                </div>
-              </div>
-
-              {/* Files Generated */}
+          {/* Queue List */}
+          {queueState.items.length > 0 ? (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">
+                File d'attente ({queueState.items.length})
+              </h2>
               <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-green-400 flex items-center gap-2">
-                  <span>📁</span>
-                  Fichiers générés
-                </h4>
-
-                <div className="grid gap-2">
-                  {/* Video with French audio */}
-                  {batchResult.finalVideoPath && (
-                    <button
-                      onClick={() => openFile(batchResult.finalVideoPath!)}
-                      className="flex items-center justify-between p-3 bg-gray-800 hover:bg-gray-750 rounded-lg border border-gray-700 hover:border-primary-500 transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">🎬</span>
-                        <div>
-                          <p className="text-sm font-medium text-white">Vidéo avec audio français</p>
-                          <p className="text-xs text-gray-400 font-mono">{batchResult.finalVideoPath.split(/[/\\]/).pop()}</p>
-                        </div>
-                      </div>
-                      <span className="text-primary-400 text-sm">Ouvrir</span>
-                    </button>
-                  )}
-
-                  {/* French audio only */}
-                  <button
-                    onClick={() => openFile(batchResult.finalAudioPath)}
-                    className="flex items-center justify-between p-3 bg-gray-800 hover:bg-gray-750 rounded-lg border border-gray-700 hover:border-primary-500 transition-colors text-left"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">🎧</span>
-                      <div>
-                        <p className="text-sm font-medium text-white">Audio français seul</p>
-                        <p className="text-xs text-gray-400 font-mono">{batchResult.finalAudioPath.split(/[/\\]/).pop()}</p>
-                      </div>
-                    </div>
-                    <span className="text-primary-400 text-sm">Ouvrir</span>
-                  </button>
-
-                  {/* English transcript */}
-                  {batchResult.transcriptOriginalPath && (
-                    <button
-                      onClick={() => openFile(batchResult.transcriptOriginalPath!)}
-                      className="flex items-center justify-between p-3 bg-gray-800 hover:bg-gray-750 rounded-lg border border-gray-700 hover:border-primary-500 transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">📄</span>
-                        <div>
-                          <p className="text-sm font-medium text-white">Transcript anglais (Markdown)</p>
-                          <p className="text-xs text-gray-400 font-mono">{batchResult.transcriptOriginalPath.split(/[/\\]/).pop()}</p>
-                        </div>
-                      </div>
-                      <span className="text-primary-400 text-sm">Ouvrir</span>
-                    </button>
-                  )}
-
-                  {/* French transcript */}
-                  {batchResult.transcriptTranslatedPath && (
-                    <button
-                      onClick={() => openFile(batchResult.transcriptTranslatedPath!)}
-                      className="flex items-center justify-between p-3 bg-gray-800 hover:bg-gray-750 rounded-lg border border-gray-700 hover:border-primary-500 transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">📝</span>
-                        <div>
-                          <p className="text-sm font-medium text-white">Transcript français (Markdown)</p>
-                          <p className="text-xs text-gray-400 font-mono">{batchResult.transcriptTranslatedPath.split(/[/\\]/).pop()}</p>
-                        </div>
-                      </div>
-                      <span className="text-primary-400 text-sm">Ouvrir</span>
-                    </button>
-                  )}
-
-                  {/* Open folder button */}
-                  <button
-                    onClick={() => openFolder(batchResult.finalAudioPath)}
-                    className="flex items-center justify-center gap-2 p-3 bg-gray-800 hover:bg-gray-750 rounded-lg border border-gray-700 hover:border-yellow-500 transition-colors"
-                  >
-                    <span className="text-xl">📂</span>
-                    <span className="text-sm font-medium text-yellow-400">Ouvrir le dossier</span>
-                  </button>
-                </div>
+                {queueState.items.map(item => (
+                  <QueueItemCard
+                    key={item.id}
+                    item={item}
+                    onRemove={handleRemoveFromQueue}
+                    onOpenFile={openFile}
+                    onOpenFolder={openFolder}
+                  />
+                ))}
               </div>
-
-              <button
-                onClick={() => {
-                  setBatchResult(null);
-                  setYoutubeUrl('');
-                  setCollectionName('');
-                }}
-                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg font-medium transition-colors"
-              >
-                Traiter une nouvelle vidéo
-              </button>
+            </div>
+          ) : (
+            <div className="p-12 bg-gray-800 border border-gray-700 rounded-lg text-center">
+              <div className="text-6xl mb-4">📝</div>
+              <h3 className="text-xl font-semibold text-gray-400 mb-2">
+                File d'attente vide
+              </h3>
+              <p className="text-sm text-gray-500">
+                Ajoutez une ou plusieurs vidéos YouTube pour commencer
+              </p>
             </div>
           )}
         </div>

@@ -57,3 +57,28 @@ export interface BatchConfig {
   generateVideo: boolean; // Generate video with French audio (default: true)
   generateTranscripts: boolean; // Generate transcript files (default: true)
 }
+
+/**
+ * Queue System Types
+ */
+
+export type QueueItemStatus = 'pending' | 'processing' | 'completed' | 'error';
+
+export interface QueueItem {
+  id: string; // Unique identifier
+  url: string; // YouTube URL
+  collectionName?: string; // Optional collection
+  status: QueueItemStatus;
+  addedAt: number; // Timestamp when added
+  startedAt?: number; // Timestamp when processing started
+  completedAt?: number; // Timestamp when completed
+  progress?: BatchProgress; // Current progress (if processing)
+  result?: BatchResult; // Result (if completed)
+  error?: string; // Error message (if failed)
+}
+
+export interface QueueState {
+  items: QueueItem[];
+  currentItemId?: string; // ID of the item currently being processed
+  isProcessing: boolean;
+}

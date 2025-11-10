@@ -3,16 +3,19 @@
  */
 import { ipcMain, BrowserWindow, shell } from 'electron';
 import { createComponentLogger } from '@main/utils/logger';
-import { BatchVideoProcessor } from '@main/services/batch-video-processor';
+import { BatchQueueManager } from '@main/services/batch-queue-manager';
 import { GoogleCloudSTTService } from '@main/services/stt-service';
 import { DeepLTranslationService } from '@main/services/translation-service';
 import { GoogleCloudTTSService } from '@main/services/tts-service';
 import { loadSTTConfig, loadTranslationConfig, loadTTSConfig } from '@main/config/services';
-import type { BatchProgress, BatchResult } from '@shared/types/batch';
+import type { QueueItem, QueueState } from '@shared/types/batch';
 
 const logger = createComponentLogger('BatchHandlers');
 
-let batchProcessor: BatchVideoProcessor | null = null;
+let queueManager: BatchQueueManager | null = null;
+let sttService: GoogleCloudSTTService | null = null;
+let translationService: DeepLTranslationService | null = null;
+let ttsService: GoogleCloudTTSService | null = null;
 
 /**
  * Register batch processing IPC handlers
@@ -20,84 +23,116 @@ let batchProcessor: BatchVideoProcessor | null = null;
 export function registerBatchHandlers(mainWindow: BrowserWindow): void {
   logger.info('Registering batch processing IPC handlers');
 
-  // Start batch processing
-  ipcMain.handle('batch:start', async (_event, youtubeUrl: string, collectionName?: string) => {
-    logger.info({ url: youtubeUrl, collection: collectionName }, 'Batch processing start requested');
+  // Initialize services on first use
+  const initializeServices = async () => {
+    if (!sttService || !translationService || !ttsService) {
+      logger.info('Initializing cloud services');
 
-    try {
-      // Initialize services
       const sttConfig = loadSTTConfig();
       const translationConfig = loadTranslationConfig();
       const ttsConfig = loadTTSConfig();
 
-      const sttService = new GoogleCloudSTTService(sttConfig);
-      const translationService = new DeepLTranslationService(translationConfig);
-      const ttsService = new GoogleCloudTTSService(ttsConfig);
+      sttService = new GoogleCloudSTTService(sttConfig);
+      translationService = new DeepLTranslationService(translationConfig);
+      ttsService = new GoogleCloudTTSService(ttsConfig);
 
       await sttService.initialize();
       await translationService.initialize();
       await ttsService.initialize();
 
-      // Create batch processor
-      batchProcessor = new BatchVideoProcessor(
-        sttService,
-        translationService,
-        ttsService,
-        {
-          segmentDuration: 30, // 30 seconds per segment
-          maxConcurrentSegments: 1,
-          collectionName: collectionName,
-          keepIntermediateFiles: false,
-          generateVideo: true,
-          generateTranscripts: true,
-        }
+      logger.info('Cloud services initialized');
+    }
+  };
+
+  // Initialize queue manager on first use
+  const initializeQueueManager = async () => {
+    if (!queueManager) {
+      await initializeServices();
+
+      queueManager = new BatchQueueManager(
+        sttService!,
+        translationService!,
+        ttsService!
       );
 
-      // Setup progress forwarding
-      batchProcessor.on('progress', (progress: BatchProgress) => {
-        mainWindow.webContents.send('batch:progress', progress);
+      // Setup event forwarding
+      queueManager.on('queue-update', (state: QueueState) => {
+        mainWindow.webContents.send('queue:update', state);
       });
 
-      batchProcessor.on('completed', (result: BatchResult) => {
-        mainWindow.webContents.send('batch:completed', result);
+      queueManager.on('item-progress', (item: QueueItem) => {
+        mainWindow.webContents.send('queue:item-progress', item);
       });
 
-      batchProcessor.on('error', (error: Error) => {
-        mainWindow.webContents.send('batch:error', {
-          message: error.message,
-          stack: error.stack,
-        });
+      queueManager.on('item-completed', (item: QueueItem) => {
+        mainWindow.webContents.send('queue:item-completed', item);
       });
 
-      // Start processing
-      const result = await batchProcessor.processVideo(youtubeUrl);
+      queueManager.on('item-error', (item: QueueItem) => {
+        mainWindow.webContents.send('queue:item-error', item);
+      });
 
-      // Cleanup services
-      await sttService.close();
-      await translationService.close();
-      await ttsService.close();
+      logger.info('Queue manager initialized');
+    }
+  };
 
-      return result;
+  // Add video to queue
+  ipcMain.handle('queue:add', async (_event, youtubeUrl: string, collectionName?: string) => {
+    logger.info({ url: youtubeUrl, collection: collectionName }, 'Adding video to queue');
 
+    try {
+      await initializeQueueManager();
+      const item = queueManager!.addToQueue(youtubeUrl, collectionName);
+      return item;
     } catch (error) {
-      logger.error({ err: error }, 'Batch processing failed');
+      logger.error({ err: error }, 'Failed to add video to queue');
       throw error;
     }
   });
 
-  // Get current progress
-  ipcMain.handle('batch:getProgress', async () => {
-    if (!batchProcessor) {
-      return null;
+  // Remove video from queue
+  ipcMain.handle('queue:remove', async (_event, itemId: string) => {
+    logger.info({ itemId }, 'Removing video from queue');
+
+    if (!queueManager) {
+      return false;
     }
-    return batchProcessor.getProgress();
+
+    return queueManager.removeFromQueue(itemId);
   });
 
-  // Stop batch processing (TODO: implement cancellation)
-  ipcMain.handle('batch:stop', async () => {
-    logger.info('Batch processing stop requested');
-    // TODO: Implement cancellation logic
-    batchProcessor = null;
+  // Clear queue
+  ipcMain.handle('queue:clear', async () => {
+    logger.info('Clearing queue');
+
+    if (!queueManager) {
+      return 0;
+    }
+
+    return queueManager.clearQueue();
+  });
+
+  // Get queue state
+  ipcMain.handle('queue:get', async () => {
+    if (!queueManager) {
+      return {
+        items: [],
+        isProcessing: false,
+      };
+    }
+
+    return queueManager.getQueueState();
+  });
+
+  // Stop all processing
+  ipcMain.handle('queue:stop', async () => {
+    logger.info('Stopping queue processing');
+
+    if (!queueManager) {
+      return;
+    }
+
+    await queueManager.stopAll();
   });
 
   // Shell operations for opening files
@@ -129,10 +164,33 @@ export function registerBatchHandlers(mainWindow: BrowserWindow): void {
  */
 export async function cleanupBatchHandlers(): Promise<void> {
   logger.info('Cleaning up batch handlers');
-  batchProcessor = null;
-  ipcMain.removeHandler('batch:start');
-  ipcMain.removeHandler('batch:getProgress');
-  ipcMain.removeHandler('batch:stop');
+
+  // Cleanup queue manager
+  if (queueManager) {
+    await queueManager.stopAll();
+    queueManager = null;
+  }
+
+  // Cleanup services
+  if (sttService) {
+    await sttService.close();
+    sttService = null;
+  }
+  if (translationService) {
+    await translationService.close();
+    translationService = null;
+  }
+  if (ttsService) {
+    await ttsService.close();
+    ttsService = null;
+  }
+
+  // Remove handlers
+  ipcMain.removeHandler('queue:add');
+  ipcMain.removeHandler('queue:remove');
+  ipcMain.removeHandler('queue:clear');
+  ipcMain.removeHandler('queue:get');
+  ipcMain.removeHandler('queue:stop');
   ipcMain.removeHandler('shell:openExternal');
   ipcMain.removeHandler('shell:showItemInFolder');
 }

@@ -38,27 +38,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('error', subscription);
   },
 
-  // Batch processing
-  startBatch: (url: string, collectionName?: string) => ipcRenderer.invoke('batch:start', url, collectionName),
-  getBatchProgress: () => ipcRenderer.invoke('batch:getProgress'),
-  stopBatch: () => ipcRenderer.invoke('batch:stop'),
+  // Queue processing
+  addToQueue: (url: string, collectionName?: string) => ipcRenderer.invoke('queue:add', url, collectionName),
+  removeFromQueue: (itemId: string) => ipcRenderer.invoke('queue:remove', itemId),
+  clearQueue: () => ipcRenderer.invoke('queue:clear'),
+  getQueue: () => ipcRenderer.invoke('queue:get'),
+  stopQueue: () => ipcRenderer.invoke('queue:stop'),
 
-  onBatchProgress: (callback: (progress: any) => void) => {
-    const subscription = (_event: unknown, progress: any) => callback(progress);
-    ipcRenderer.on('batch:progress', subscription);
-    return () => ipcRenderer.removeListener('batch:progress', subscription);
+  onQueueUpdate: (callback: (state: any) => void) => {
+    const subscription = (_event: unknown, state: any) => callback(state);
+    ipcRenderer.on('queue:update', subscription);
+    return () => ipcRenderer.removeListener('queue:update', subscription);
   },
 
-  onBatchCompleted: (callback: (result: any) => void) => {
-    const subscription = (_event: unknown, result: any) => callback(result);
-    ipcRenderer.on('batch:completed', subscription);
-    return () => ipcRenderer.removeListener('batch:completed', subscription);
+  onQueueItemProgress: (callback: (item: any) => void) => {
+    const subscription = (_event: unknown, item: any) => callback(item);
+    ipcRenderer.on('queue:item-progress', subscription);
+    return () => ipcRenderer.removeListener('queue:item-progress', subscription);
   },
 
-  onBatchError: (callback: (error: any) => void) => {
-    const subscription = (_event: unknown, error: any) => callback(error);
-    ipcRenderer.on('batch:error', subscription);
-    return () => ipcRenderer.removeListener('batch:error', subscription);
+  onQueueItemCompleted: (callback: (item: any) => void) => {
+    const subscription = (_event: unknown, item: any) => callback(item);
+    ipcRenderer.on('queue:item-completed', subscription);
+    return () => ipcRenderer.removeListener('queue:item-completed', subscription);
+  },
+
+  onQueueItemError: (callback: (item: any) => void) => {
+    const subscription = (_event: unknown, item: any) => callback(item);
+    ipcRenderer.on('queue:item-error', subscription);
+    return () => ipcRenderer.removeListener('queue:item-error', subscription);
   },
 
   // File operations
@@ -77,13 +85,16 @@ declare global {
       onTranslationUpdate: (callback: (text: string) => void) => () => void;
       onStatusChange: (callback: (status: string) => void) => () => void;
       onError: (callback: (error: string) => void) => () => void;
-      // Batch processing
-      startBatch: (url: string, collectionName?: string) => Promise<any>;
-      getBatchProgress: () => Promise<any>;
-      stopBatch: () => Promise<void>;
-      onBatchProgress: (callback: (progress: any) => void) => () => void;
-      onBatchCompleted: (callback: (result: any) => void) => () => void;
-      onBatchError: (callback: (error: any) => void) => () => void;
+      // Queue processing
+      addToQueue: (url: string, collectionName?: string) => Promise<any>;
+      removeFromQueue: (itemId: string) => Promise<boolean>;
+      clearQueue: () => Promise<number>;
+      getQueue: () => Promise<any>;
+      stopQueue: () => Promise<void>;
+      onQueueUpdate: (callback: (state: any) => void) => () => void;
+      onQueueItemProgress: (callback: (item: any) => void) => () => void;
+      onQueueItemCompleted: (callback: (item: any) => void) => () => void;
+      onQueueItemError: (callback: (item: any) => void) => () => void;
       // File operations
       openExternal: (path: string) => Promise<void>;
       showItemInFolder: (path: string) => Promise<void>;
