@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 import { QueueItemCard } from './components/QueueItemCard';
+import { SettingsPage } from './pages/SettingsPage';
 import type { QueueState, QueueItem } from '@shared/types/batch';
 
+type Tab = 'queue' | 'settings';
+
 function App() {
+  const [activeTab, setActiveTab] = useState<Tab>('queue');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [collectionName, setCollectionName] = useState('');
   const [error, setError] = useState('');
@@ -110,17 +114,19 @@ function App() {
   const completedCount = queueState.items.filter(i => i.status === 'completed').length;
   const errorCount = queueState.items.filter(i => i.status === 'error').length;
 
+  // Si on est sur les Settings, afficher directement SettingsPage
+  if (activeTab === 'settings') {
+    return <SettingsPage onBack={() => setActiveTab('queue')} />;
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="p-4 bg-gray-800 border-b border-gray-700">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-primary-400">YouTube Live Translator</h1>
-            <p className="text-sm text-gray-400">
-              File d'attente de traduction - English → French
-            </p>
-          </div>
+      {/* Header avec onglets */}
+      <header className="bg-gray-800 border-b border-gray-700">
+        <div className="p-4 flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-primary-400">YouTube Live Translator</h1>
+
+          {/* Stats (uniquement sur l'onglet Queue) */}
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
               <span className="text-gray-400">⏳ Pending:</span>
@@ -141,6 +147,30 @@ function App() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 px-4">
+          <button
+            onClick={() => setActiveTab('queue')}
+            className={`px-4 py-2 font-medium transition-colors border-b-2 ${
+              activeTab === 'queue'
+                ? 'text-primary-400 border-primary-400'
+                : 'text-gray-400 border-transparent hover:text-gray-300'
+            }`}
+          >
+            📋 File d'attente
+          </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-4 py-2 font-medium transition-colors border-b-2 ${
+              activeTab === 'settings'
+                ? 'text-primary-400 border-primary-400'
+                : 'text-gray-400 border-transparent hover:text-gray-300'
+            }`}
+          >
+            ⚙️ Paramètres
+          </button>
         </div>
       </header>
 
