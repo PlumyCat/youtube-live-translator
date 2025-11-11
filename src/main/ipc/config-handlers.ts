@@ -48,7 +48,7 @@ export function registerConfigHandlers(): void {
   /**
    * Open file picker dialog for selecting Google Cloud key file
    */
-  ipcMain.handle('config:select-key-file', async (event) => {
+  ipcMain.handle('config:select-key-file', async () => {
     try {
       const result = await dialog.showOpenDialog({
         title: 'Sélectionner le fichier de clés Google Cloud',
@@ -95,36 +95,76 @@ export function registerConfigHandlers(): void {
       const configService = getConfigStorageService();
       const config = await configService.get();
 
-      // Check if config is complete
-      if (!config.googleCloud?.projectId || !config.googleCloud?.keyFilePath) {
-        return {
-          success: false,
-          message: 'Configuration Google Cloud incomplète',
-        };
+      const providers = config.providers || { stt: 'google', translation: 'deepl', tts: 'google' };
+      const errors: string[] = [];
+
+      // Check Azure configuration if any Azure provider is selected
+      const usingAzure = providers.stt === 'azure' || providers.translation === 'azure' || providers.tts === 'azure';
+
+      if (usingAzure) {
+        // Check Azure Speech (for STT and TTS)
+        if ((providers.stt === 'azure' || providers.tts === 'azure')) {
+          if (!config.azure?.speechKey) {
+            errors.push('Azure Speech Key manquante');
+          }
+          if (!config.azure?.speechRegion) {
+            errors.push('Azure Speech Region manquante');
+          }
+        }
+
+        // Check Azure Translator
+        if (providers.translation === 'azure') {
+          if (!config.azure?.translatorKey) {
+            errors.push('Azure Translator Key manquante');
+          }
+          if (!config.azure?.translatorRegion) {
+            errors.push('Azure Translator Region manquante');
+          }
+          if (!config.azure?.translatorEndpoint) {
+            errors.push('Azure Translator Endpoint manquant');
+          }
+        }
       }
 
-      if (!config.deepl?.apiKey) {
-        return {
-          success: false,
-          message: 'Clé API DeepL manquante',
-        };
+      // Check Google Cloud configuration if any Google provider is selected
+      const usingGoogle = providers.stt === 'google' || providers.tts === 'google';
+
+      if (usingGoogle) {
+        if (!config.googleCloud?.projectId) {
+          errors.push('Google Cloud Project ID manquant');
+        }
+        if (!config.googleCloud?.keyFilePath) {
+          errors.push('Google Cloud Key File manquant');
+        } else {
+          // Validate key file exists
+          const keyFileExists = await configService.validateKeyFilePath(config.googleCloud.keyFilePath);
+          if (!keyFileExists) {
+            errors.push('Fichier de clés Google Cloud introuvable');
+          }
+        }
       }
 
-      // Validate key file exists
-      const keyFileExists = await configService.validateKeyFilePath(config.googleCloud.keyFilePath);
-      if (!keyFileExists) {
+      // Check DeepL configuration if selected
+      if (providers.translation === 'deepl') {
+        if (!config.deepl?.apiKey) {
+          errors.push('Clé API DeepL manquante');
+        }
+      }
+
+      // Return results
+      if (errors.length > 0) {
         return {
           success: false,
-          message: 'Fichier de clés Google Cloud introuvable',
+          message: `❌ Configuration incomplète:\n• ${errors.join('\n• ')}`,
         };
       }
 
       // TODO: Implement actual service connection testing
       // For now, just check if all fields are present
-      logger.info('Config test passed (basic validation only)');
+      logger.info({ providers }, 'Config test passed (basic validation only)');
       return {
         success: true,
-        message: 'Configuration valide (test complet à venir)',
+        message: `✅ Configuration valide!\n• STT: ${providers.stt}\n• Translation: ${providers.translation}\n• TTS: ${providers.tts}\n\n(Test de connexion réel à venir)`,
       };
     } catch (error) {
       logger.error({ err: error }, 'Failed to test config');
