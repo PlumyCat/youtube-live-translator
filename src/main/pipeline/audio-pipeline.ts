@@ -7,9 +7,8 @@ import { LatencyMonitor } from '@main/utils/latency-monitor';
 import { RingBuffer } from './ring-buffer';
 import { pipelineEventBus } from './event-bus';
 import { YouTubeCaptureService } from '@main/services/youtube-capture';
-import { GoogleCloudSTTService } from '@main/services/stt-service';
-import { DeepLTranslationService } from '@main/services/translation-service';
-import { GoogleCloudTTSService } from '@main/services/tts-service';
+import { createSTTService, createTranslationService, createTTSService } from '@main/services/service-factory';
+import type { STTService, TranslationService, TTSService } from '@shared/types/services';
 import { loadSTTConfig, loadTranslationConfig, loadTTSConfig } from '@main/config/services';
 import type { PipelineConfig, PipelineStatus } from '@shared/types/pipeline';
 
@@ -24,9 +23,9 @@ export class AudioPipeline {
 
   // Services
   private youtubeCapture: YouTubeCaptureService | null = null;
-  private sttService: GoogleCloudSTTService | null = null;
-  private translationService: DeepLTranslationService | null = null;
-  private ttsService: GoogleCloudTTSService | null = null;
+  private sttService: STTService | null = null;
+  private translationService: TranslationService | null = null;
+  private ttsService: TTSService | null = null;
 
   // Infrastructure
   private audioBuffer: RingBuffer<Buffer>;
@@ -70,18 +69,18 @@ export class AudioPipeline {
       const translationConfig = loadTranslationConfig();
       const ttsConfig = loadTTSConfig();
 
-      // Initialize services
-      this.sttService = new GoogleCloudSTTService(sttConfig);
+      // Initialize services using factory (supports multiple providers)
+      this.sttService = createSTTService(sttConfig);
       await this.sttService.initialize();
-      logger.info('STT service initialized');
+      logger.info({ provider: sttConfig.provider }, 'STT service initialized');
 
-      this.translationService = new DeepLTranslationService(translationConfig);
+      this.translationService = createTranslationService(translationConfig);
       await this.translationService.initialize();
-      logger.info('Translation service initialized');
+      logger.info({ provider: translationConfig.provider }, 'Translation service initialized');
 
-      this.ttsService = new GoogleCloudTTSService(ttsConfig);
+      this.ttsService = createTTSService(ttsConfig);
       await this.ttsService.initialize();
-      logger.info('TTS service initialized');
+      logger.info({ provider: ttsConfig.provider }, 'TTS service initialized');
 
       // Setup YouTube capture
       this.youtubeCapture = new YouTubeCaptureService({

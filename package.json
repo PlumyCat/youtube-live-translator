@@ -24,17 +24,20 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,json,css}\"",
     "typecheck": "tsc --noEmit",
     "test:pipeline": "tsx scripts/test-pipeline-simple.ts",
-    "test:stt": "tsx scripts/test-stt-with-speech.ts"
+    "test:stt": "tsx scripts/test-stt-with-speech.ts",
+    "test:azure": "tsx scripts/test-azure-services.ts"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
     "@google-cloud/speech": "^7.2.1",
     "@google-cloud/text-to-speech": "^6.4.0",
-    "axios": "^1.6.2",
+    "axios": "^1.13.2",
     "axios-retry": "^4.0.0",
     "deepl-node": "^1.21.0",
     "dotenv": "^16.3.1",
     "electron-updater": "^6.1.7",
+    "lru-cache": "^11.2.2",
+    "microsoft-cognitiveservices-speech-sdk": "^1.46.0",
     "pino": "^10.1.0",
     "pino-pretty": "^10.3.1",
     "zod": "^3.22.4",

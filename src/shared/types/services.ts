@@ -2,12 +2,23 @@
  * Shared types for cloud services (STT, Translation, TTS)
  */
 
+// Provider Types
+export type STTProvider = 'google' | 'azure' | 'whisper';
+export type TranslationProvider = 'deepl' | 'azure' | 'google';
+export type TTSProvider = 'google' | 'azure' | 'elevenlabs';
+
+// Voice Gender for TTS
+export type VoiceGender = 'male' | 'female' | 'neutral';
+
 // Speech-to-Text Types
 export interface STTConfig {
-  provider: 'google';
+  provider: STTProvider;
   language: string;
   sampleRate: number;
   encoding: string;
+  // Azure-specific
+  azureKey?: string;
+  azureRegion?: string;
 }
 
 export interface STTResult {
@@ -21,14 +32,19 @@ export interface STTService {
   initialize(): Promise<void>;
   transcribe(audioChunk: Buffer): Promise<STTResult>;
   close(): Promise<void>;
+  getMetrics(): ServiceMetrics;
 }
 
 // Translation Types
 export interface TranslationConfig {
-  provider: 'deepl';
+  provider: TranslationProvider;
   sourceLanguage: string;
   targetLanguage: string;
   cacheEnabled: boolean;
+  // Azure-specific
+  azureKey?: string;
+  azureRegion?: string;
+  azureEndpoint?: string;
 }
 
 export interface TranslationResult {
@@ -43,15 +59,20 @@ export interface TranslationService {
   initialize(): Promise<void>;
   translate(text: string): Promise<TranslationResult>;
   close(): Promise<void>;
+  getMetrics(): ServiceMetrics;
 }
 
 // Text-to-Speech Types
 export interface TTSConfig {
-  provider: 'google';
+  provider: TTSProvider;
   language: string;
   voiceName: string;
+  voiceGender?: VoiceGender; // NEW: Gender selection
   audioEncoding: string;
   sampleRate: number;
+  // Azure-specific
+  azureKey?: string;
+  azureRegion?: string;
 }
 
 export interface TTSResult {
@@ -83,23 +104,67 @@ export interface ServiceHealth {
   timestamp: number;
 }
 
+export interface TTSService {
+  initialize(): Promise<void>;
+  synthesize(text: string): Promise<TTSResult>;
+  close(): Promise<void>;
+  getMetrics(): ServiceMetrics;
+}
+
 // Service Configuration (for Settings)
 export interface ServiceConfig {
+  // Provider selection
+  providers: {
+    stt: STTProvider;
+    translation: TranslationProvider;
+    tts: TTSProvider;
+  };
+  // Google Cloud
   googleCloud: {
     projectId: string;
     keyFilePath: string;
   };
+  // DeepL
   deepl: {
     apiKey: string;
+  };
+  // Azure
+  azure: {
+    speechKey: string;
+    speechRegion: string;
+    translatorKey: string;
+    translatorRegion: string;
+    translatorEndpoint: string;
+  };
+  // Voice settings
+  voice: {
+    gender: VoiceGender;
+    name?: string; // Optional custom voice name
   };
 }
 
 export type PartialServiceConfig = {
+  providers?: {
+    stt?: STTProvider;
+    translation?: TranslationProvider;
+    tts?: TTSProvider;
+  };
   googleCloud?: {
     projectId?: string;
     keyFilePath?: string;
   };
   deepl?: {
     apiKey?: string;
+  };
+  azure?: {
+    speechKey?: string;
+    speechRegion?: string;
+    translatorKey?: string;
+    translatorRegion?: string;
+    translatorEndpoint?: string;
+  };
+  voice?: {
+    gender?: VoiceGender;
+    name?: string;
   };
 };
