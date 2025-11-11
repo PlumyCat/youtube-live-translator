@@ -6,6 +6,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { createComponentLogger } from '@main/utils/logger';
 import { AudioPipeline } from '@main/pipeline/audio-pipeline';
 import { pipelineEventBus } from '@main/pipeline/event-bus';
+import { isValidYouTubeUrl } from '@shared/utils/validation';
 import type { PipelineConfig } from '@shared/types/pipeline';
 
 const logger = createComponentLogger('IPCHandlers');
@@ -23,6 +24,12 @@ export function registerPipelineHandlers(window: BrowserWindow): void {
   // Start translation
   ipcMain.handle('translation:start', async (_event, url: string) => {
     logger.info({ url }, 'Translation start requested');
+
+    // Validate YouTube URL
+    if (!isValidYouTubeUrl(url)) {
+      logger.error({ url }, 'Invalid YouTube URL format');
+      throw new Error('Invalid YouTube URL format');
+    }
 
     try {
       // Stop existing pipeline if any

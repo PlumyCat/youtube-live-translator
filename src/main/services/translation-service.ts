@@ -26,7 +26,7 @@ export class DeepLTranslationService implements TranslationService {
   private status: ServiceStatus = 'idle';
   private circuitBreaker: CircuitBreaker;
   private cache: Map<string, CacheEntry> = new Map();
-  private cacheMaxSize = 100;
+  private cacheMaxSize = 1000; // Increased from 100 to 1000 for better cache hit ratio (target 20%+)
   private cacheMaxAge = 3600000; // 1 hour
   private metrics: ServiceMetrics = {
     totalRequests: 0,

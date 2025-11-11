@@ -30,8 +30,15 @@ export class AudioPipeline {
 
   // Infrastructure
   private audioBuffer: RingBuffer<Buffer>;
+  // Note: transcriptBuffer is currently unused - reserved for future architecture
+  // where STT and Translation stages could be decoupled with separate buffering
   private transcriptBuffer: RingBuffer<string>;
   private latencyMonitor: LatencyMonitor;
+
+  // Backpressure control
+  private isProcessing = false;
+  private isPaused = false;
+  private processingInterval: NodeJS.Timeout | null = null;
 
   constructor(config: PipelineConfig) {
     this.config = config;
@@ -111,10 +118,18 @@ export class AudioPipeline {
     pipelineEventBus.emit('pipeline:status', 'running');
 
     try {
-      // Start YouTube capture
+      // Start YouTube capture - push to buffer instead of direct processing
       await this.youtubeCapture.start(async audioChunk => {
-        await this.processAudioChunk(audioChunk.data);
+        if (!this.isPaused) {
+          const pushed = this.audioBuffer.push(audioChunk.data);
+          if (!pushed) {
+            logger.warn('Audio buffer full, chunk dropped');
+          }
+        }
       });
+
+      // Start async processing loop
+      this.startProcessingLoop();
     } catch (error) {
       this.status = 'error';
       logger.error({ err: error }, 'Failed to start pipeline');
@@ -129,6 +144,12 @@ export class AudioPipeline {
   async stop(): Promise<void> {
     logger.info('Stopping audio pipeline');
     this.status = 'stopping';
+
+    // Stop processing loop
+    if (this.processingInterval) {
+      clearInterval(this.processingInterval);
+      this.processingInterval = null;
+    }
 
     if (this.youtubeCapture) {
       this.youtubeCapture.stop();
@@ -214,13 +235,53 @@ export class AudioPipeline {
   }
 
   /**
+   * Start processing loop - POP from buffer and process
+   */
+  private startProcessingLoop(): void {
+    // Process audio buffer at regular intervals
+    this.processingInterval = setInterval(async () => {
+      if (this.isProcessing || this.status !== 'running') {
+        return;
+      }
+
+      const audioData = this.audioBuffer.pop();
+      if (!audioData) {
+        return; // Buffer empty
+      }
+
+      this.isProcessing = true;
+      try {
+        await this.processAudioChunk(audioData);
+      } catch (error) {
+        logger.error({ err: error }, 'Error in processing loop');
+      } finally {
+        this.isProcessing = false;
+      }
+    }, 100); // Check every 100ms
+
+    logger.info('Processing loop started');
+  }
+
+  /**
    * Setup event handlers
    */
   private setupEventHandlers(): void {
-    // Handle backpressure
+    // Handle backpressure - pause when buffers are full
     pipelineEventBus.on('backpressure', stage => {
-      logger.warn({ stage }, 'Backpressure detected');
-      // TODO: Implement backpressure handling (pause/throttle)
+      logger.warn({ stage, utilization: this.audioBuffer.utilization() }, 'Backpressure detected');
+
+      if (!this.isPaused) {
+        this.isPaused = true;
+        logger.info('Pipeline paused due to backpressure');
+
+        // Resume after buffer drains
+        setTimeout(() => {
+          if (this.audioBuffer.utilization() < 50) {
+            this.isPaused = false;
+            logger.info('Pipeline resumed');
+          }
+        }, 1000);
+      }
     });
   }
 

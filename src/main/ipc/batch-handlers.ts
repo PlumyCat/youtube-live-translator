@@ -8,6 +8,7 @@ import { GoogleCloudSTTService } from '@main/services/stt-service';
 import { DeepLTranslationService } from '@main/services/translation-service';
 import { GoogleCloudTTSService } from '@main/services/tts-service';
 import { loadSTTConfig, loadTranslationConfig, loadTTSConfig } from '@main/config/services';
+import { isValidYouTubeUrl, isValidFilePath } from '@shared/utils/validation';
 import type { QueueItem, QueueState } from '@shared/types/batch';
 
 const logger = createComponentLogger('BatchHandlers');
@@ -80,6 +81,12 @@ export function registerBatchHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('queue:add', async (_event, youtubeUrl: string, collectionName?: string) => {
     logger.info({ url: youtubeUrl, collection: collectionName }, 'Adding video to queue');
 
+    // Validate YouTube URL
+    if (!isValidYouTubeUrl(youtubeUrl)) {
+      logger.error({ url: youtubeUrl }, 'Invalid YouTube URL format');
+      throw new Error('Invalid YouTube URL format');
+    }
+
     try {
       await initializeQueueManager();
       const item = queueManager!.addToQueue(youtubeUrl, collectionName);
@@ -138,6 +145,13 @@ export function registerBatchHandlers(mainWindow: BrowserWindow): void {
   // Shell operations for opening files
   ipcMain.handle('shell:openExternal', async (_event, path: string) => {
     logger.info({ path }, 'Opening file with external application');
+
+    // Validate file path
+    if (!isValidFilePath(path)) {
+      logger.error({ path }, 'Invalid file path');
+      throw new Error('Invalid file path');
+    }
+
     try {
       await shell.openPath(path);
     } catch (error) {
@@ -148,6 +162,13 @@ export function registerBatchHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('shell:showItemInFolder', async (_event, path: string) => {
     logger.info({ path }, 'Showing item in folder');
+
+    // Validate file path
+    if (!isValidFilePath(path)) {
+      logger.error({ path }, 'Invalid file path');
+      throw new Error('Invalid file path');
+    }
+
     try {
       shell.showItemInFolder(path);
     } catch (error) {

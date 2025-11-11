@@ -1,10 +1,18 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { isValidYouTubeUrl, isValidFilePath } from '../shared/utils/validation';
+import type { QueueState, QueueItem } from '../shared/types/batch';
+import type { PartialServiceConfig } from '../shared/types/services';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
   // Translation control
-  startTranslation: (url: string) => ipcRenderer.invoke('translation:start', url),
+  startTranslation: (url: string) => {
+    if (!isValidYouTubeUrl(url)) {
+      throw new Error('Invalid YouTube URL format');
+    }
+    return ipcRenderer.invoke('translation:start', url);
+  },
   stopTranslation: () => ipcRenderer.invoke('translation:stop'),
 
   // Event listeners
@@ -39,43 +47,58 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Queue processing
-  addToQueue: (url: string, collectionName?: string) => ipcRenderer.invoke('queue:add', url, collectionName),
+  addToQueue: (url: string, collectionName?: string) => {
+    if (!isValidYouTubeUrl(url)) {
+      throw new Error('Invalid YouTube URL format');
+    }
+    return ipcRenderer.invoke('queue:add', url, collectionName);
+  },
   removeFromQueue: (itemId: string) => ipcRenderer.invoke('queue:remove', itemId),
   clearQueue: () => ipcRenderer.invoke('queue:clear'),
   getQueue: () => ipcRenderer.invoke('queue:get'),
   stopQueue: () => ipcRenderer.invoke('queue:stop'),
 
-  onQueueUpdate: (callback: (state: any) => void) => {
-    const subscription = (_event: unknown, state: any) => callback(state);
+  onQueueUpdate: (callback: (state: QueueState) => void) => {
+    const subscription = (_event: unknown, state: QueueState) => callback(state);
     ipcRenderer.on('queue:update', subscription);
     return () => ipcRenderer.removeListener('queue:update', subscription);
   },
 
-  onQueueItemProgress: (callback: (item: any) => void) => {
-    const subscription = (_event: unknown, item: any) => callback(item);
+  onQueueItemProgress: (callback: (item: QueueItem) => void) => {
+    const subscription = (_event: unknown, item: QueueItem) => callback(item);
     ipcRenderer.on('queue:item-progress', subscription);
     return () => ipcRenderer.removeListener('queue:item-progress', subscription);
   },
 
-  onQueueItemCompleted: (callback: (item: any) => void) => {
-    const subscription = (_event: unknown, item: any) => callback(item);
+  onQueueItemCompleted: (callback: (item: QueueItem) => void) => {
+    const subscription = (_event: unknown, item: QueueItem) => callback(item);
     ipcRenderer.on('queue:item-completed', subscription);
     return () => ipcRenderer.removeListener('queue:item-completed', subscription);
   },
 
-  onQueueItemError: (callback: (item: any) => void) => {
-    const subscription = (_event: unknown, item: any) => callback(item);
+  onQueueItemError: (callback: (item: QueueItem) => void) => {
+    const subscription = (_event: unknown, item: QueueItem) => callback(item);
     ipcRenderer.on('queue:item-error', subscription);
     return () => ipcRenderer.removeListener('queue:item-error', subscription);
   },
 
   // File operations
-  openExternal: (path: string) => ipcRenderer.invoke('shell:openExternal', path),
-  showItemInFolder: (path: string) => ipcRenderer.invoke('shell:showItemInFolder', path),
+  openExternal: (path: string) => {
+    if (!isValidFilePath(path)) {
+      throw new Error('Invalid file path');
+    }
+    return ipcRenderer.invoke('shell:openExternal', path);
+  },
+  showItemInFolder: (path: string) => {
+    if (!isValidFilePath(path)) {
+      throw new Error('Invalid file path');
+    }
+    return ipcRenderer.invoke('shell:showItemInFolder', path);
+  },
 
   // Service configuration
   getServiceConfig: () => ipcRenderer.invoke('config:get'),
-  saveServiceConfig: (config: any) => ipcRenderer.invoke('config:save', config),
+  saveServiceConfig: (config: PartialServiceConfig) => ipcRenderer.invoke('config:save', config),
   selectKeyFile: () => ipcRenderer.invoke('config:select-key-file'),
   validateKeyFile: (filePath: string) => ipcRenderer.invoke('config:validate-key-file', filePath),
   testConnection: () => ipcRenderer.invoke('config:test-connection'),
@@ -93,21 +116,21 @@ declare global {
       onStatusChange: (callback: (status: string) => void) => () => void;
       onError: (callback: (error: string) => void) => () => void;
       // Queue processing
-      addToQueue: (url: string, collectionName?: string) => Promise<any>;
+      addToQueue: (url: string, collectionName?: string) => Promise<QueueItem>;
       removeFromQueue: (itemId: string) => Promise<boolean>;
       clearQueue: () => Promise<number>;
-      getQueue: () => Promise<any>;
+      getQueue: () => Promise<QueueState>;
       stopQueue: () => Promise<void>;
-      onQueueUpdate: (callback: (state: any) => void) => () => void;
-      onQueueItemProgress: (callback: (item: any) => void) => () => void;
-      onQueueItemCompleted: (callback: (item: any) => void) => () => void;
-      onQueueItemError: (callback: (item: any) => void) => () => void;
+      onQueueUpdate: (callback: (state: QueueState) => void) => () => void;
+      onQueueItemProgress: (callback: (item: QueueItem) => void) => () => void;
+      onQueueItemCompleted: (callback: (item: QueueItem) => void) => () => void;
+      onQueueItemError: (callback: (item: QueueItem) => void) => () => void;
       // File operations
       openExternal: (path: string) => Promise<void>;
       showItemInFolder: (path: string) => Promise<void>;
       // Service configuration
-      getServiceConfig: () => Promise<any>;
-      saveServiceConfig: (config: any) => Promise<{ success: boolean }>;
+      getServiceConfig: () => Promise<PartialServiceConfig>;
+      saveServiceConfig: (config: PartialServiceConfig) => Promise<{ success: boolean }>;
       selectKeyFile: () => Promise<string | null>;
       validateKeyFile: (filePath: string) => Promise<boolean>;
       testConnection: () => Promise<{ success: boolean; message: string }>;
